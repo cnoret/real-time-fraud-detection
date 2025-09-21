@@ -2,8 +2,6 @@
 
 End-to-end fraud detection pipeline with **Airflow**, **Hugging Face Spaces**, **Neon (Postgres)**, and a **Streamlit dashboard**.  
 
-[![Monitoring](https://img.shields.io/badge/🤗%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/cnoret/fraud-monitor-streamlit)
-
 ---
 ## ✨ Features
 
@@ -36,14 +34,14 @@ End-to-end fraud detection pipeline with **Airflow**, **Hugging Face Spaces**, *
 │   └── streamlit_app.py   # Streamlit dashboard (deployed on HF)
 │
 ├── notebooks/
-│   └── EDA_fraud_detection.ipynb # Exploratory Data Analysis
+│   └── EDA_training.ipynb # Exploratory Data Analysis and Machine Learning
 │
-├── fraud_api.py           # Fraud detection API (Hugging Face Space)
-├── fraud_model.pkl        # Trained model (local storage, can be ignored in git)
-├── fraudTest.csv          # Dataset (large → consider .gitignore)
+├── fraud_api.py           # Fraud detection API
+├── fraud_model.pkl        # Trained model (local storage)
+├── fraudTest.csv          # Dataset (generated)
 │
 ├── requirements.txt       # Project dependencies
-├── .env                   # Secrets (ignored in git)
+├── .env                   # Secrets
 └── README.md              # Project documentation
 ```
 
