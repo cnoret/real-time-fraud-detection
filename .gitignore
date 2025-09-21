@@ -44,3 +44,6 @@ ENV/
 # Data files
 fraud_model.pkl
 fraudTest.csv
+
+# GitHub
+.cache_ggshield
