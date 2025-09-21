@@ -23,8 +23,7 @@ from airflow.operators.empty import EmptyOperator
 # Config
 JEDHA_API = "https://charlestng-real-time-fraud-detection.hf.space/current-transactions"
 HF_SPACE_API = "https://cnoret-fraud-detection-api.hf.space/predict"
-#NEON_DB_URI = Variable.get("NEON_DB_URI")
-NEON_DB_URI = "postgresql://neondb_owner:npg_3gTXEcYOI2bV@ep-steep-butterfly-aba5n020-pooler.eu-west-2.aws.neon.tech/neondb?sslmode=require"
+NEON_DB_URI = Variable.get("NEON_DB_URI")
 DEFAULTS = {
     "amt": 100.0,
     "cc_num": 4000000000000002,
