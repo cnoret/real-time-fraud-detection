@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.egg
+*.egg-info/
+dist/
+build/
+*.log
+
+# Airflow
+airflow.db
+airflow.cfg
+logs/
+*.sqlite
+*.pid
+*.err
+*.out
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.env/
+*.env
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# VSCode
+.vscode/
+
+# macOS
+.DS_Store
+
+# Others
+*.bak
+*.swp
+*.tmp
+
+# Data files
+fraud_model.pkl
+fraudTest.csv
