@@ -19,6 +19,16 @@ THRESHOLDS = {
 }
 
 
+def _risk_level(probability: float) -> str:
+    if probability >= 0.5:
+        return "CRITICAL"
+    if probability >= 0.1:
+        return "HIGH"
+    if probability >= 0.01:
+        return "MEDIUM"
+    return "LOW"
+
+
 class PredictionRequest(BaseModel):
     """Request model for prediction endpoint"""
 
@@ -71,15 +81,7 @@ def predict_fraud(request: PredictionRequest):
     probability = model.predict_proba(df_input)[0, 1]
     prediction = int(probability >= threshold_value)
 
-    # Determine risk level
-    if probability >= 0.5:
-        risk_level = "CRITICAL"
-    elif probability >= 0.1:
-        risk_level = "HIGH"
-    elif probability >= 0.01:
-        risk_level = "MEDIUM"
-    else:
-        risk_level = "LOW"
+    risk_level = _risk_level(probability)
 
     return PredictionResponse(
         prediction=prediction,
@@ -103,7 +105,7 @@ def predict_batch(requests: list[PredictionRequest]):
     results = []
     for req in requests:
         result = predict_fraud(req)
-        results.append(result.dict())
+        results.append(result.model_dump())
     return {"predictions": results}
 
 
