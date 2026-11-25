@@ -3,8 +3,9 @@ title: Fraud Transactions API
 emoji: 💳
 colorFrom: gray
 colorTo: red
-sdk: docker
-app_port: 7860
+sdk: gradio
+sdk_version: 5.45.0
+app_file: app.py
 pinned: false
 license: mit
 short_description: Flux de paiements par carte rejoué en temps réel
@@ -30,6 +31,12 @@ au modèle, et il permet de mesurer précision et rappel en production.
 
 **Holdout** : ces 50 000 `trans_num` doivent être exclus de tout réentraînement du modèle,
 sinon la mesure de performance serait biaisée.
+
+## Hébergement
+
+Le Space utilise le SDK **Gradio** (gratuit) : Hugging Face exécute `python app.py`, qui lance
+l'application FastAPI avec uvicorn sur le port 7860. Gradio n'est pas utilisé dans le code.
+Le `Dockerfile` reste disponible pour un lancement en conteneur, en local ou chez un autre hébergeur.
 
 ## Lancer en local
 
