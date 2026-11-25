@@ -3,6 +3,7 @@
 import os
 import math
 import time
+from decimal import Decimal
 import psycopg2
 import pandas as pd
 import streamlit as st
@@ -34,7 +35,13 @@ def fetch_df(sql: str, params: tuple = ()):
         cur.execute(sql, params)
         rows = cur.fetchall()
         cols = [desc[0] for desc in cur.description]
-    return pd.DataFrame(rows, columns=cols)
+    df = pd.DataFrame(rows, columns=cols)
+    # Postgres NUMERIC values (e.g. SUM results) arrive as Decimal objects:
+    # cast them to float so charts treat them as quantities, not categories.
+    for col in df.columns:
+        if df[col].map(lambda v: isinstance(v, Decimal)).any():
+            df[col] = pd.to_numeric(df[col], errors="coerce").astype(float)
+    return df
 
 
 def fetch_one(sql: str, params: tuple = ()):
@@ -199,7 +206,7 @@ except Exception as e:
 
 # ---------- Table ----------
 st.subheader("Transactions")
-st.dataframe(df, use_container_width=True)
+st.dataframe(df, width="stretch")
 
 
 # ---------- CSV Export ----------
