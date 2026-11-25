@@ -5,7 +5,7 @@ import time
 from datetime import datetime
 
 # API URLs
-JEDHA_URL = "https://charlestng-real-time-fraud-detection.hf.space/current-transactions"
+TRANSACTIONS_URL = "https://cnoret-fraud-transactions-api.hf.space/current-transactions"
 PREDICT_URL = "https://cnoret-fraud-detection-api.hf.space/predict"
 HEALTH_URL = "https://cnoret-fraud-detection-api.hf.space/health"
 
@@ -23,9 +23,9 @@ def get_expected_columns():
 
 
 def fetch_transaction():
-    """Fetch transaction from Jedha API"""
+    """Fetch transaction from our Transactions API (legacy orient=split format)"""
     try:
-        resp = requests.get(JEDHA_URL, timeout=10)
+        resp = requests.get(TRANSACTIONS_URL, timeout=10)
         resp.raise_for_status()
         raw = resp.text.strip()
 

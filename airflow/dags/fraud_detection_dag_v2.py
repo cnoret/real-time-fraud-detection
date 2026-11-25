@@ -1,13 +1,13 @@
 """
 Fraud Detection MVP (Airflow 3)
 Graph-friendly DAG with clear task bubbles:
-- Ingestion: fetch transaction from Jedha
+- Ingestion: fetch a transaction from our own Transactions API
+- Labeling: fetch its ground truth (is_fraud), served separately
 - Inference: prepare payload + call HF Space
 - Persistence: store result into NeonDB
 """
 
 from __future__ import annotations
-import json
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
@@ -21,7 +21,9 @@ from airflow.utils.task_group import TaskGroup
 from airflow.operators.empty import EmptyOperator
 
 # ── Config ────────────────────────────────────────────────────────────────────
-JEDHA_API = "https://charlestng-real-time-fraud-detection.hf.space/current-transactions"
+# Self-hosted transactions source (transactions-api/ in this repo, deployed on HF Spaces).
+# Can be overridden with the Airflow Variable TRANSACTIONS_API.
+TRANSACTIONS_API_DEFAULT = "https://cnoret-fraud-transactions-api.hf.space"
 HF_SPACE_API = "https://cnoret-fraud-detection-api.hf.space/predict"
 HEALTH_URL = HF_SPACE_API.replace("/predict", "/health")
 
@@ -59,12 +61,13 @@ DOC_MD = """
 # Fraud Detection MVP
 
 **Flow**
-1. **Ingestion** – fetch a live transaction from Jedha API.
-2. **Inference** – prepare payload (schema align + timestamp fix) then call **HF Space**.
-3. **Persistence** – store results into **NeonDB**.
+1. **Ingestion** – fetch a live transaction from our Transactions API.
+2. **Labeling** – fetch its ground truth (`is_fraud`), never sent to the model.
+3. **Inference** – prepare payload (schema align + timestamp fix) then call **HF Space**.
+4. **Persistence** – store results into **NeonDB**.
 
 **Key Vars**
-- `JEDHA_API`, `HF_SPACE_API`, `HEALTH_URL`, `NEON_DB_URI` (Airflow Variables)
+- `TRANSACTIONS_API`, `HF_SPACE_API`, `HEALTH_URL`, `NEON_DB_URI` (Airflow Variables)
 
 **Table**
 ```sql
@@ -74,6 +77,8 @@ CREATE TABLE IF NOT EXISTS fraud_transactions (
   merchant       TEXT,
   fraud_probability DOUBLE PRECISION,
   prediction     INTEGER,
+  is_fraud       INTEGER,          -- ground truth, NULL if unknown
+  event_time     TIMESTAMPTZ,      -- emission time from the source API
   inserted_at    TIMESTAMPTZ DEFAULT NOW()
 );
 ```
@@ -82,15 +87,25 @@ CREATE TABLE IF NOT EXISTS fraud_transactions (
 
 # ── Module-level helpers (pure Python, fully testable) ────────────────────────
 
-def _parse_jedha_response(raw_text: str) -> Dict[str, Any]:
-    """Parse Jedha API response (Pandas orient=split format)."""
-    import pandas as pd
+def _parse_transactions_response(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract the first transaction from a `/v1/transactions` response."""
+    txs = body.get("transactions") if isinstance(body, dict) else None
+    if not txs:
+        raise ValueError("Invalid Transactions API response: no transaction")
+    tx = txs[0]
+    if not tx.get("trans_num"):
+        raise ValueError("Invalid Transactions API response: missing trans_num")
+    if "is_fraud" in tx:
+        raise ValueError("Label leaked into transaction payload")
+    return tx
 
-    data = json.loads(raw_text.strip().strip('"').replace('\\"', '"'))
-    if "data" in data and "columns" in data:
-        df = pd.DataFrame(data["data"], columns=data["columns"])
-        return df.iloc[0].to_dict()
-    raise ValueError("Invalid Jedha API response format")
+
+def _parse_label_response(body: Dict[str, Any], trans_num: str) -> int | None:
+    """Return is_fraud for trans_num from a `/v1/labels` response, or None if unknown."""
+    for item in body.get("labels", []):
+        if item.get("trans_num") == trans_num:
+            return int(item["is_fraud"])
+    return None
 
 
 def _fix_timestamps(
@@ -139,7 +154,7 @@ def _build_payload(
 
 @dag(
     dag_id="automatic_fraud_detection",
-    description="Fraud detection pipeline (fetch → prepare → predict → store)",
+    description="Fraud detection pipeline (fetch → prepare → predict + label → store)",
     start_date=datetime(2025, 1, 1),
     schedule=timedelta(minutes=1),
     catchup=False,
@@ -157,19 +172,45 @@ def automatic_fraud_detection():
     end = EmptyOperator(task_id="end")
 
     # ── Ingestion ─────────────────────────────────────────────────────────────
-    with TaskGroup(group_id="ingestion", tooltip="Fetch a transaction from Jedha API") as ingestion:
+    with TaskGroup(group_id="ingestion", tooltip="Fetch a transaction from the Transactions API") as ingestion:
 
         @task(task_id="fetch_transaction")
         def fetch_transaction() -> Dict[str, Any]:
-            """Fetch 1 transaction from Jedha (Pandas orient=split)."""
-            logging.info("Fetching transaction from Jedha…")
-            r = requests.get(JEDHA_API, timeout=30)
+            """Fetch 1 transaction (without its label) from our Transactions API."""
+            base = Variable.get("TRANSACTIONS_API", default_var=TRANSACTIONS_API_DEFAULT)
+            logging.info("Fetching transaction from %s…", base)
+            r = requests.get(f"{base.rstrip('/')}/v1/transactions", params={"n": 1}, timeout=30)
             r.raise_for_status()
-            tx = _parse_jedha_response(r.text)
+            tx = _parse_transactions_response(r.json())
             logging.info("Fetched transaction: $%s at %s", tx.get("amt"), tx.get("merchant"))
             return tx
 
         tx_dict = fetch_transaction()
+
+    # ── Labeling ──────────────────────────────────────────────────────────────
+    with TaskGroup(group_id="labeling", tooltip="Fetch the ground truth label") as labeling:
+
+        @task(task_id="fetch_ground_truth")
+        def fetch_ground_truth(transaction: Dict[str, Any]) -> int | None:
+            """Fetch is_fraud for this transaction (simulated chargeback feedback).
+
+            A failure here must not block the prediction: the label stays NULL.
+            """
+            base = Variable.get("TRANSACTIONS_API", default_var=TRANSACTIONS_API_DEFAULT)
+            trans_num = transaction["trans_num"]
+            try:
+                r = requests.get(
+                    f"{base.rstrip('/')}/v1/labels",
+                    params={"trans_num": trans_num},
+                    timeout=30,
+                )
+                r.raise_for_status()
+                return _parse_label_response(r.json(), trans_num)
+            except Exception as e:
+                logging.warning("Label fetch failed (%s); storing NULL.", e)
+                return None
+
+        label = fetch_ground_truth(tx_dict)
 
     # ── Inference ─────────────────────────────────────────────────────────────
     with TaskGroup(group_id="inference", tooltip="Prepare payload and predict") as inference:
@@ -214,7 +255,9 @@ def automatic_fraud_detection():
     with TaskGroup(group_id="persistence", tooltip="Store results into NeonDB") as persistence:
 
         @task(task_id="store_in_neon")
-        def store_in_neon(transaction: Dict[str, Any], pred: Dict[str, Any]) -> None:
+        def store_in_neon(
+            transaction: Dict[str, Any], pred: Dict[str, Any], is_fraud: int | None
+        ) -> None:
             neon_db_uri = Variable.get("NEON_DB_URI")
             logging.info("Storing into NeonDB…")
             conn = psycopg2.connect(neon_db_uri)
@@ -240,7 +283,9 @@ def automatic_fraud_detection():
             cur.execute(
                 """
                 ALTER TABLE fraud_transactions
-                  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+                  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ,
+                  ADD COLUMN IF NOT EXISTS is_fraud INTEGER,
+                  ADD COLUMN IF NOT EXISTS event_time TIMESTAMPTZ;
                 """
             )
             cur.execute(
@@ -252,13 +297,16 @@ def automatic_fraud_detection():
             cur.execute(
                 """
                 INSERT INTO fraud_transactions (
-                    transaction_id, amount, merchant, fraud_probability, prediction
-                ) VALUES (%s, %s, %s, %s, %s)
+                    transaction_id, amount, merchant, fraud_probability, prediction,
+                    is_fraud, event_time
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (transaction_id) DO UPDATE SET
                     amount = EXCLUDED.amount,
                     merchant = EXCLUDED.merchant,
                     fraud_probability = EXCLUDED.fraud_probability,
                     prediction = EXCLUDED.prediction,
+                    is_fraud = EXCLUDED.is_fraud,
+                    event_time = EXCLUDED.event_time,
                     updated_at = NOW();
                 """,
                 (
@@ -267,6 +315,8 @@ def automatic_fraud_detection():
                     str(transaction.get("merchant", "Unknown"))[:255],
                     float(pred.get("probability", 0.0)),
                     int(pred.get("prediction", 0)),
+                    is_fraud,
+                    transaction.get("event_time"),
                 ),
             )
 
@@ -281,9 +331,9 @@ def automatic_fraud_detection():
                     transaction.get("amt", 0),
                 )
 
-        store_in_neon(tx_dict, pred_out)
+        store_in_neon(tx_dict, pred_out, label)
 
-    start >> ingestion >> inference >> persistence >> end
+    start >> ingestion >> [inference, labeling] >> persistence >> end
 
 
 dag = automatic_fraud_detection()

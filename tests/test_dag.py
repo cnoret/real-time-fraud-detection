@@ -1,7 +1,5 @@
 """Tests for DAG module-level helper functions (pure Python, no Airflow needed)."""
 
-import json
-
 import pytest
 
 # Airflow is mocked in conftest.py before this import runs.
@@ -10,37 +8,43 @@ from fraud_detection_dag_v2 import (
     FALLBACK_SCHEMA,
     _build_payload,
     _fix_timestamps,
-    _parse_jedha_response,
+    _parse_label_response,
+    _parse_transactions_response,
 )
 
 
-# ── _parse_jedha_response ─────────────────────────────────────────────────────
-class TestParseJedhaResponse:
-    def _orient_split(self, row: dict) -> str:
-        return json.dumps({"columns": list(row.keys()), "data": [list(row.values())]})
+# ── _parse_transactions_response / _parse_label_response ──────────────────────
+class TestParseTransactionsResponse:
+    def test_returns_first_transaction(self):
+        body = {"count": 2, "transactions": [
+            {"trans_num": "a", "amt": 10.0}, {"trans_num": "b", "amt": 20.0}]}
+        assert _parse_transactions_response(body) == {"trans_num": "a", "amt": 10.0}
 
-    def test_valid_orient_split(self):
-        raw = self._orient_split({"amt": 99.9, "merchant": "ACME"})
-        result = _parse_jedha_response(raw)
-        assert result["amt"] == 99.9
-        assert result["merchant"] == "ACME"
+    def test_empty_list_raises(self):
+        with pytest.raises(ValueError, match="no transaction"):
+            _parse_transactions_response({"count": 0, "transactions": []})
 
-    def test_returns_first_row_only(self):
-        payload = json.dumps({"columns": ["amt"], "data": [[10.0], [20.0], [30.0]]})
-        assert _parse_jedha_response(payload)["amt"] == 10.0
+    def test_wrong_shape_raises(self):
+        with pytest.raises(ValueError):
+            _parse_transactions_response({"foo": "bar"})
 
-    def test_handles_escaped_json(self):
-        inner = json.dumps({"columns": ["amt"], "data": [[50.0]]})
-        escaped = json.dumps(inner)  # double-encoded, as Jedha API sends it
-        assert _parse_jedha_response(escaped)["amt"] == 50.0
+    def test_missing_trans_num_raises(self):
+        with pytest.raises(ValueError, match="trans_num"):
+            _parse_transactions_response({"transactions": [{"amt": 1.0}]})
 
-    def test_invalid_format_raises_value_error(self):
-        with pytest.raises(ValueError, match="Invalid Jedha API response format"):
-            _parse_jedha_response(json.dumps({"foo": "bar"}))
+    def test_label_in_payload_is_rejected(self):
+        with pytest.raises(ValueError, match="Label leaked"):
+            _parse_transactions_response(
+                {"transactions": [{"trans_num": "a", "is_fraud": 1}]})
 
-    def test_empty_data_raises(self):
-        with pytest.raises((ValueError, IndexError)):
-            _parse_jedha_response(json.dumps({"columns": ["amt"], "data": []}))
+
+class TestParseLabelResponse:
+    def test_known_label(self):
+        body = {"labels": [{"trans_num": "a", "is_fraud": 1}], "unknown": []}
+        assert _parse_label_response(body, "a") == 1
+
+    def test_unknown_returns_none(self):
+        assert _parse_label_response({"labels": [], "unknown": ["a"]}, "a") is None
 
 
 # ── _fix_timestamps ───────────────────────────────────────────────────────────
