@@ -105,6 +105,14 @@ class TestBatch:
         data = api_client.post("/predict/batch", json=batch).json()
         assert len(data["predictions"]) == 4
 
+    def test_scores_whole_batch_in_one_call(self, api_client, fraud_api_module):
+        mock = fraud_api_module.model.predict_proba
+        before = mock.call_count
+        batch = [{"data": {"amt": i * 10.0}} for i in range(5)]
+        api_client.post("/predict/batch", json=batch)
+        assert mock.call_count == before + 1
+        assert len(mock.call_args.args[0]) == 5
+
     def test_empty_batch(self, api_client):
         data = api_client.post("/predict/batch", json=[]).json()
         assert data["predictions"] == []
@@ -127,8 +135,8 @@ class TestRiskLevel:
 
     def test_api_reflects_risk_level(self, api_client, fraud_api_module):
         """Changing mock proba updates risk_level returned by /predict."""
-        original = fraud_api_module.model.predict_proba.return_value
-        fraud_api_module.model.predict_proba.return_value = np.array([[0.25, 0.75]])
+        original = fraud_api_module.model.predict_proba.side_effect
+        fraud_api_module.model.predict_proba.side_effect = lambda df: np.array([[0.25, 0.75]])
         try:
             data = api_client.post(
                 "/predict", json={"data": {}, "threshold": "balanced"}
@@ -136,4 +144,4 @@ class TestRiskLevel:
             assert data["risk_level"] == "CRITICAL"
             assert data["probability"] == pytest.approx(0.75)
         finally:
-            fraud_api_module.model.predict_proba.return_value = original
+            fraud_api_module.model.predict_proba.side_effect = original

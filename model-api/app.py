@@ -77,34 +77,23 @@ def health():
     }
 
 
-@app.post("/predict", response_model=PredictionResponse)
-def predict_fraud(request: PredictionRequest):
-    """Predict fraud with configurable threshold"""
+def _threshold(name: Optional[str]) -> tuple[str, float]:
+    if name not in THRESHOLDS:
+        name = "balanced"
+    return name, THRESHOLDS[name]
 
-    # Determine threshold
-    threshold_name = request.threshold
-    if threshold_name not in THRESHOLDS:
-        threshold_name = "balanced"
-    threshold_value = THRESHOLDS[threshold_name]
 
-    # Prepare input data
-    df_input = pd.DataFrame([request.data])
-
-    # Make prediction
-    probability = model.predict_proba(df_input)[0, 1]
-    prediction = int(probability >= threshold_value)
-
-    risk_level = _risk_level(probability)
-
+def _response(probability: float, data: Dict[str, Any], threshold: Optional[str]) -> PredictionResponse:
+    threshold_name, threshold_value = _threshold(threshold)
     return PredictionResponse(
-        prediction=prediction,
+        prediction=int(probability >= threshold_value),
         probability=float(probability),
         threshold_used=threshold_value,
-        risk_level=risk_level,
+        risk_level=_risk_level(probability),
         details={
             "threshold_name": threshold_name,
-            "amount": request.data.get("amt", 0),
-            "merchant": request.data.get("merchant", "unknown"),
+            "amount": data.get("amt", 0),
+            "merchant": data.get("merchant", "unknown"),
             "all_thresholds_result": {
                 name: int(probability >= thresh) for name, thresh in THRESHOLDS.items()
             },
@@ -112,14 +101,30 @@ def predict_fraud(request: PredictionRequest):
     )
 
 
+@app.post("/predict", response_model=PredictionResponse)
+def predict_fraud(request: PredictionRequest):
+    """Predict fraud with configurable threshold"""
+    probability = model.predict_proba(pd.DataFrame([request.data]))[0, 1]
+    return _response(probability, request.data, request.threshold)
+
+
 @app.post("/predict/batch")
 def predict_batch(requests: list[PredictionRequest]):
-    """Batch prediction endpoint"""
-    results = []
-    for req in requests:
-        result = predict_fraud(req)
-        results.append(result.model_dump())
-    return {"predictions": results}
+    """Batch prediction endpoint.
+
+    Scores all rows in a single predict_proba call: the pipeline's fixed cost
+    (about 1 s per call, mostly the one-hot encoder) is paid once per batch,
+    not once per transaction.
+    """
+    if not requests:
+        return {"predictions": []}
+    probabilities = model.predict_proba(pd.DataFrame([r.data for r in requests]))[:, 1]
+    return {
+        "predictions": [
+            _response(p, r.data, r.threshold).model_dump()
+            for p, r in zip(probabilities, requests)
+        ]
+    }
 
 
 @app.get("/thresholds")
