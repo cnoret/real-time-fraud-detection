@@ -5,7 +5,7 @@ import time
 from datetime import datetime
 
 # API URLs
-TRANSACTIONS_URL = "https://cnoret-fraud-transactions-api.hf.space/current-transactions"
+TRANSACTIONS_URL = "https://fraud-transactions-api.onrender.com/current-transactions"
 PREDICT_URL = "https://cnoret-fraud-detection-api.hf.space/predict"
 HEALTH_URL = "https://cnoret-fraud-detection-api.hf.space/health"
 
