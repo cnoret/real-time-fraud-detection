@@ -1,0 +1,27 @@
+# Night console theme for the Fraud Monitor dashboard (dashboard/src/streamlit_app.py).
+# Chart colors live in dashboard/src/charts.py: keep both palettes in sync.
+[theme]
+base = "dark"
+primaryColor = "#C9BBF5"
+backgroundColor = "#0D0E12"
+secondaryBackgroundColor = "#15171D"
+textColor = "#E7E7EB"
+borderColor = "#23262F"
+linkColor = "#C9BBF5"
+orangeColor = "#F0A060"
+greenColor = "#6FCF97"
+redColor = "#E5737A"
+font = "IBM Plex Sans:https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+codeFont = "IBM Plex Mono:https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap"
+baseRadius = "10px"
+showSidebarBorder = true
+
+[theme.sidebar]
+backgroundColor = "#111217"
+secondaryBackgroundColor = "#1D1F28"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false
