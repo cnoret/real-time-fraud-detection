@@ -271,6 +271,25 @@ def predict(base: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     return parse_prediction(r.json())
 
 
+RETRY_STATUSES = {429, 502, 503, 504}
+
+
+def _post_with_retries(url: str, body: Any, attempts: int = 3, delay: float = 30.0):
+    """POST, retrying timeouts and gateway errors (free-tier restarts and redeploys)."""
+    for i in range(1, attempts + 1):
+        try:
+            r = requests.post(url, json=body, timeout=REQUEST_TIMEOUT)
+            if r.status_code not in RETRY_STATUSES or i == attempts:
+                r.raise_for_status()
+                return r
+            log.warning("%s answered %s (attempt %d/%d), retrying", url, r.status_code, i, attempts)
+        except (requests.ConnectionError, requests.Timeout) as e:
+            if i == attempts:
+                raise
+            log.warning("%s failed (%s, attempt %d/%d), retrying", url, e, i, attempts)
+        time.sleep(delay)
+
+
 def predict_batch(
     base: str, payloads: Sequence[Dict[str, Any]], chunk_size: int = PREDICT_CHUNK
 ) -> List[Dict[str, Any]]:
@@ -281,12 +300,7 @@ def predict_batch(
     preds: List[Dict[str, Any]] = []
     for start in range(0, len(payloads), chunk_size):
         chunk = list(payloads[start:start + chunk_size])
-        r = requests.post(
-            _url(base, "/predict/batch"),
-            json=[{"data": p} for p in chunk],
-            timeout=REQUEST_TIMEOUT,
-        )
-        r.raise_for_status()
+        r = _post_with_retries(_url(base, "/predict/batch"), [{"data": p} for p in chunk])
         got = r.json().get("predictions", [])
         if len(got) != len(chunk):
             raise ValueError(f"Model API returned {len(got)} predictions for {len(chunk)} inputs")
