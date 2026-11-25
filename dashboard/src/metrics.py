@@ -2,21 +2,59 @@
 
 Every function takes a DataFrame shaped like `fraud_transactions`:
 transaction_id, amount, merchant, fraud_probability, prediction, is_fraud,
-event_time, inserted_at (timestamps tz-aware, UTC).
+event_time, inserted_at (timestamps tz-aware, UTC), model_version,
+decision_threshold.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pandas as pd
 
-# Offline results on the notebook's test set (EDA_training.ipynb).
-OFFLINE_METRICS = {"precision": 0.45, "recall": 0.59, "roc_auc": 0.967}
+# The served model's card (written by training/train.py, shipped with model-api).
+MODEL_CARD_PATH = Path(__file__).resolve().parents[2] / "model-api" / "model_card.json"
 
-# Threshold applied by the pipeline when it stores `prediction` ("balanced" in model-api).
-SERVED_THRESHOLD = 0.1
+
+def load_model_card(path: Path = MODEL_CARD_PATH) -> dict:
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+MODEL_CARD = load_model_card()
+CURRENT_MODEL: str = MODEL_CARD.get("model_version", "model-v2.0.0")
+# Rows stored before the pipeline recorded model_version were all scored by v1,
+# a model trained with leakage (it had seen most of the replayed transactions).
+LEGACY_MODEL = "model-v1.0.0"
+LEGACY_THRESHOLD = 0.1
+
+# Threshold the pipeline applies when it stores `prediction` ("balanced" in model-api).
+SERVED_THRESHOLD: float = float(MODEL_CARD.get("thresholds", {}).get("balanced", 0.3615))
+
+# Offline results of the served model on fraudTest, at SERVED_THRESHOLD, so live
+# and offline figures are always compared at the same threshold.
+_test = MODEL_CARD.get("metrics", {}).get("test", {})
+OFFLINE_METRICS = {k: _test.get(k) for k in ("precision", "recall", "f1", "roc_auc", "pr_auc")}
+OFFLINE_THRESHOLD: float = float(_test.get("threshold", SERVED_THRESHOLD))
+
+
+def for_model(df: pd.DataFrame, version: str) -> pd.DataFrame:
+    """Rows scored by one model version (rows without a version are legacy v1)."""
+    if "model_version" not in df.columns:
+        return df if version == LEGACY_MODEL else df.iloc[0:0]
+    return df[df["model_version"].fillna(LEGACY_MODEL) == version]
+
+
+def served_threshold(df: pd.DataFrame, version: str = CURRENT_MODEL) -> float:
+    """Threshold behind the stored decisions of these rows."""
+    if "decision_threshold" in df.columns and df["decision_threshold"].notna().any():
+        return float(df["decision_threshold"].dropna().mode().iloc[0])
+    return LEGACY_THRESHOLD if version == LEGACY_MODEL else SERVED_THRESHOLD
 
 # The GitHub Actions pipeline runs hourly; GitHub may delay a scheduled run.
 EXPECTED_RUN_EVERY = timedelta(hours=1)

@@ -28,27 +28,10 @@ for _mod in [
 ]:
     sys.modules.setdefault(_mod, _airflow_stub)
 
-# ── Feature lists (mirrors the model's expected schema) ───────────────────────
-NUMERIC_FEATURES = [
-    "cc_num", "amt", "zip", "lat", "long",
-    "city_pop", "unix_time", "merch_lat", "merch_long",
-]
-CATEGORICAL_FEATURES = [
-    "merchant", "category", "first", "last", "gender",
-    "street", "city", "state", "job", "dob",
-    "trans_date_trans_time", "trans_num",
-]
-
-
 # ── Mock model factory ────────────────────────────────────────────────────────
 def _make_mock_model(fraud_proba: float = 0.2):
     m = MagicMock()
     m.predict_proba.side_effect = lambda df: np.array([[1 - fraud_proba, fraud_proba]] * len(df))
-    num_t, cat_t, prep = MagicMock(), MagicMock(), MagicMock()
-    num_t.feature_names_in_ = NUMERIC_FEATURES
-    cat_t.feature_names_in_ = CATEGORICAL_FEATURES
-    prep.named_transformers_ = {"num": num_t, "cat": cat_t}
-    m.named_steps = {"preproc": prep}
     return m
 
 
@@ -57,6 +40,7 @@ MODEL_API_PATH = Path(__file__).resolve().parents[1] / "model-api" / "app.py"
 
 def _import_model_api():
     """Import model-api/app.py under the module name `fraud_api`."""
+    sys.path.insert(0, str(MODEL_API_PATH.parent))
     spec = importlib.util.spec_from_file_location("fraud_api", MODEL_API_PATH)
     module = importlib.util.module_from_spec(spec)
     sys.modules["fraud_api"] = module

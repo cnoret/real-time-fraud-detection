@@ -128,6 +128,34 @@ def best_f1_threshold(y_true, proba) -> float:
     return float(thresholds[int(np.argmax(f1))])
 
 
+def operating_points(y_true, proba) -> dict[str, float]:
+    """Named decision thresholds, all chosen on the validation period.
+
+    - conservative: lowest threshold whose precision reaches 95 % (few false alerts)
+    - balanced:     threshold that maximises F1 (the default decision)
+    - sensitive:    highest threshold whose recall reaches 90 %
+    - very_sensitive: highest threshold whose recall reaches 95 % (investigation mode)
+    """
+    precision, recall, thresholds = precision_recall_curve(y_true, proba)
+    precision, recall = precision[:-1], recall[:-1]
+
+    def lowest_with_precision(target: float) -> float:
+        ok = np.flatnonzero(precision >= target)
+        return float(thresholds[ok[0]]) if ok.size else float(thresholds[-1])
+
+    def highest_with_recall(target: float) -> float:
+        ok = np.flatnonzero(recall >= target)
+        return float(thresholds[ok[-1]]) if ok.size else float(thresholds[0])
+
+    points = {
+        "conservative": lowest_with_precision(0.95),
+        "balanced": best_f1_threshold(y_true, proba),
+        "sensitive": highest_with_recall(0.90),
+        "very_sensitive": highest_with_recall(0.95),
+    }
+    return {name: round(t, 4) for name, t in points.items()}
+
+
 def evaluate(y_true, proba, threshold: float) -> dict:
     pred = (proba >= threshold).astype(int)
     tn, fp, fn, tp = confusion_matrix(y_true, pred, labels=[0, 1]).ravel()
@@ -183,7 +211,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[valid] {name}: {validation[name]}")
 
     n_iter = int(candidates["hist_gradient_boosting"].named_steps["clf"].n_iter_)
-    threshold = validation["hist_gradient_boosting"]["threshold"]
+    proba_val = candidates["hist_gradient_boosting"].predict_proba(X_val)[:, 1]
+    thresholds = operating_points(y_val, proba_val)
+    threshold = thresholds["balanced"]
     print(f"chosen: hist_gradient_boosting, {n_iter} iterations, threshold {threshold}")
 
     # 2. Refit on all of fraudTrain, evaluate once on fraudTest
@@ -194,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
     proba_test = final.predict_proba(X_test)[:, 1]
     test_metrics = evaluate(y_test, proba_test, threshold)
     test_metrics_default = evaluate(y_test, proba_test, 0.5)
+    test_by_threshold = {name: evaluate(y_test, proba_test, t) for name, t in thresholds.items()}
 
     baseline = logistic_baseline().fit(X_train, y_train)
     proba_base = baseline.predict_proba(X_test)[:, 1]
@@ -220,6 +251,8 @@ def main(argv: list[str] | None = None) -> int:
         "excluded_columns": sorted(FORBIDDEN - {TARGET}),
         "threshold": threshold,
         "threshold_rule": f"maximises F1 on fraudTrain transactions from {VALID_START.date()} on (temporal validation)",
+        "thresholds": thresholds,
+        "model_sha256": sha256(str(model_path)),
         "data": {
             "train": {"file": Path(args.train).name, "sha256": sha256(args.train), "rows": int(len(train)),
                       "frauds": int(y_train.sum()),
@@ -233,6 +266,7 @@ def main(argv: list[str] | None = None) -> int:
             "validation": validation,
             "test": test_metrics,
             "test_at_0_5": test_metrics_default,
+            "test_by_threshold": test_by_threshold,
             "test_logistic_baseline": baseline_metrics,
             "replayed_holdout": holdout_metrics,
         },

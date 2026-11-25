@@ -92,6 +92,17 @@ CHECKS: list[Check] = [
         unit="hours",
     ),
     Check(
+        name="Model version recorded, last 24 h",
+        description="Every recent row names the model release that scored it.",
+        sql=(
+            "SELECT COUNT(*) FROM fraud_transactions "
+            "WHERE inserted_at > NOW() - INTERVAL '24 hours' AND model_version IS NULL"
+        ),
+        rule="eq",
+        bound=0,
+        severity="warn",
+    ),
+    Check(
         name="No event from the future",
         description="No transaction is emitted after it was stored.",
         sql=(

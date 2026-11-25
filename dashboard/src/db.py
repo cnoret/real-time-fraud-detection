@@ -16,6 +16,8 @@ TRANSACTION_COLUMNS = [
     "transaction_id", "amount", "merchant", "fraud_probability",
     "prediction", "is_fraud", "event_time", "inserted_at",
 ]
+# Added by a later pipeline migration: selected only once they exist.
+OPTIONAL_COLUMNS = ["model_version", "decision_threshold"]
 
 
 def db_uri() -> str | None:
@@ -48,17 +50,30 @@ def _to_float(value):
     return float(value) if isinstance(value, Decimal) else value
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _existing_columns() -> set[str]:
+    rows, _ = _query(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'fraud_transactions'"
+    )
+    return {r[0] for r in rows}
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def load_transactions(since: datetime | None) -> pd.DataFrame:
     """All rows inserted since `since` (or all rows), newest first."""
-    sql = f"SELECT {', '.join(TRANSACTION_COLUMNS)} FROM fraud_transactions"
+    existing = _existing_columns()
+    cols = TRANSACTION_COLUMNS + [c for c in OPTIONAL_COLUMNS if c in existing]
+    sql = f"SELECT {', '.join(cols)} FROM fraud_transactions"
     params: tuple = ()
     if since is not None:
         sql += " WHERE inserted_at >= %s"
         params = (since,)
     rows, cols = _query(sql + " ORDER BY inserted_at DESC", params)
     df = pd.DataFrame(rows, columns=cols)
-    for col in ("amount", "fraud_probability"):
+    for col in OPTIONAL_COLUMNS:
+        if col not in df.columns:
+            df[col] = None
+    for col in ("amount", "fraud_probability", "decision_threshold"):
         df[col] = pd.to_numeric(df[col].map(_to_float), errors="coerce").astype(float)
     for col in ("prediction", "is_fraud"):
         df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
