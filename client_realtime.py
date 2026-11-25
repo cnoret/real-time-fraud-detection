@@ -35,7 +35,7 @@ def fetch_transaction():
             obj = json.loads(raw)
             if isinstance(obj, str):
                 obj = json.loads(obj)
-        except:
+        except json.JSONDecodeError:
             obj = json.loads(raw.strip('"').replace('\\"', '"'))
 
         df = pd.DataFrame(obj["data"], columns=obj["columns"])
@@ -67,7 +67,7 @@ def prepare_data(transaction, expected_columns):
         try:
             dt = datetime.fromtimestamp(transaction["unix_time"])
             transaction["trans_date_trans_time"] = dt.strftime("%Y-%m-%d %H:%M:%S")
-        except:
+        except (ValueError, OSError, OverflowError):
             transaction["trans_date_trans_time"] = "2020-06-15 12:00:00"
 
     # Build payload with defaults for missing fields
@@ -149,11 +149,11 @@ def display_result(result):
 
     # Simple recommendation
     if probability > 0.01:
-        print(f"🚫 RECOMMENDATION: Block transaction")
+        print("🚫 RECOMMENDATION: Block transaction")
     elif probability > 0.001:
-        print(f"👀 RECOMMENDATION: Manual review")
+        print("👀 RECOMMENDATION: Manual review")
     else:
-        print(f"✅ RECOMMENDATION: Approve")
+        print("✅ RECOMMENDATION: Approve")
 
 
 def single_prediction(expected_cols):
@@ -194,7 +194,7 @@ def main():
 
     # Main loop
     while True:
-        print(f"\n" + "=" * 30)
+        print("\n" + "=" * 30)
         print("1. Single prediction")
         print("2. Monitor (5 predictions)")
         print("0. Exit")

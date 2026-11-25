@@ -2,6 +2,7 @@
 
 [![Live App](https://img.shields.io/badge/Live%20App-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://cnoret-fraud-monitor.streamlit.app/)
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cnoret/real-time-fraud-detection/blob/main/EDA_training.ipynb)
+[![Tests](https://github.com/cnoret/real-time-fraud-detection/actions/workflows/tests.yml/badge.svg)](https://github.com/cnoret/real-time-fraud-detection/actions/workflows/tests.yml)
 ![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?logo=python&logoColor=white)
 ![Airflow](https://img.shields.io/badge/Apache%20Airflow-3.0-017CEE?logo=apacheairflow&logoColor=white)
 ![scikit-learn](https://img.shields.io/badge/scikit--learn-1.7-F7931E?logo=scikitlearn&logoColor=white)
@@ -58,6 +59,7 @@ Both Render services sleep after 15 minutes without traffic and take about a min
 
 ```
 .
+├── .github/workflows/tests.yml          # CI: ruff + pytest on every push and pull request
 ├── airflow/
 │   ├── dags/fraud_detection_dag_v2.py   # Orchestration (Airflow 3, TaskFlow)
 │   └── docker-compose.yaml              # Local Airflow stack
@@ -68,15 +70,18 @@ Both Render services sleep after 15 minutes without traffic and take about a min
 ├── EDA_training.ipynb                   # EDA, model training and selection
 ├── client_realtime.py                   # Minimal client that calls both APIs
 ├── render.yaml                          # Render Blueprint for both APIs
+├── requirements-dev.txt                 # Pinned test and lint dependencies
+├── ruff.toml                            # Lint rules
 └── pytest.ini
 ```
 
 ## How to run
 
-**Tests** (68 tests, a few seconds):
+**Tests** (68 tests, a few seconds; the same checks run in GitHub Actions on every push and pull request):
 
 ```bash
-pip install pytest fastapi httpx pandas pyarrow scikit-learn joblib requests psycopg2-binary
+pip install -r requirements-dev.txt
+ruff check .
 python -m pytest
 ```
 
@@ -104,7 +109,7 @@ streamlit run dashboard/src/streamlit_app.py
 - **The pipeline only runs while the local Airflow stack is up.** Next: a scheduled GitHub Actions job so the demo keeps flowing.
 - **Live precision and recall are not shown yet.** The DAG already stores `is_fraud`; the dashboard does not read it yet.
 - **The offline metrics are optimistic.** The model uses identifier-like columns (`cc_num`, `trans_num`, names, street) as features, and the replayed holdout comes from the same file it was trained on. Next: retrain without identifiers and exclude the holdout.
-- **No CI yet.** Next: a GitHub Actions workflow for the test suite, then a SQL modelling layer with data quality checks.
+- **No SQL modelling layer yet.** The test suite runs in CI (ruff + pytest); next is a SQL layer with data quality checks.
 
 ## Author
 
