@@ -52,7 +52,7 @@ All hosting runs on free tiers.
 | Scheduled run | [`.github/workflows/pipeline.yml`](.github/workflows/pipeline.yml), [`scripts/score_batch.py`](scripts/score_batch.py) | Same steps as the DAG, reused from [`fraud_pipeline.py`](airflow/dags/fraud_pipeline.py), on a GitHub Actions cron: every hour it wakes both APIs, scores a batch of 30 transactions (`/predict/batch`) and upserts them. Hourly keeps the two free Render services well under their 750 free instance-hours a month. |
 | Model API | [`model-api/`](model-api/) | Serves the scikit-learn pipeline (`/predict`, `/predict/batch`, `/thresholds`). The model file is versioned as a [GitHub Release](https://github.com/cnoret/real-time-fraud-detection/releases/tag/model-v1.0.0) and downloaded at build time with its exact scikit-learn version. Live at [fraud-model-api.onrender.com](https://fraud-model-api.onrender.com/docs). |
 | Database | Neon (PostgreSQL) | Table `fraud_transactions`: amount, merchant, fraud probability, prediction, ground truth, event time. |
-| Dashboard | [`dashboard/src/streamlit_app.py`](dashboard/src/streamlit_app.py) | KPIs, hourly probability trend, filters and CSV export. |
+| Dashboard | [`dashboard/src/`](dashboard/src/) | Dark multipage monitoring console (Streamlit + Altair): pipeline freshness and status, live precision, recall, F1 and ROC AUC against `is_fraud` with a threshold explorer, ingestion batches, SQL data quality checks ([`quality.py`](dashboard/src/quality.py)), and a filterable transaction table with CSV export. |
 
 Both Render services sleep after 15 minutes without traffic and take about a minute to wake up.
 
@@ -69,8 +69,9 @@ Both Render services sleep after 15 minutes without traffic and take about a min
 ├── scripts/score_batch.py               # Batch runner used by the scheduled workflow
 ├── transactions-api/                    # Transaction stream (FastAPI, Docker)
 ├── model-api/                           # Model serving (FastAPI, Docker)
-├── dashboard/                           # Streamlit monitoring app
-├── tests/                               # pytest suite (APIs, DAG logic, model download)
+├── dashboard/src/                       # Streamlit console: pages, metrics, SQL quality checks
+├── .streamlit/config.toml               # Dashboard theme
+├── tests/                               # pytest suite (APIs, DAG logic, model download, dashboard)
 ├── EDA_training.ipynb                   # EDA, model training and selection
 ├── client_realtime.py                   # Minimal client that calls both APIs
 ├── render.yaml                          # Render Blueprint for both APIs
@@ -121,9 +122,9 @@ streamlit run dashboard/src/streamlit_app.py
 ## Limitations and next steps
 
 - **The hosted pipeline runs hourly, not in real time.** Free tiers set the pace: a GitHub Actions cron (which can start a few minutes late) and Render services that sleep when idle. GitHub also pauses scheduled workflows after 60 days without repository activity.
-- **Live precision and recall are not shown yet.** The DAG already stores `is_fraud`; the dashboard does not read it yet.
+- **Live metrics depend on volume.** At 30 transactions an hour and a fraud rate under 1 %, a week holds only a handful of frauds: the dashboard warns when precision and recall rest on fewer than 10 labelled frauds.
 - **The offline metrics are optimistic.** The model uses identifier-like columns (`cc_num`, `trans_num`, names, street) as features, and the replayed holdout comes from the same file it was trained on. Next: retrain without identifiers and exclude the holdout.
-- **No SQL modelling layer yet.** The test suite runs in CI (ruff + pytest); next is a SQL layer with data quality checks.
+- **No SQL modelling layer yet.** Data quality checks run as SQL from the dashboard; next is moving them, and the metrics, into versioned SQL models (dbt).
 
 ## Author
 
