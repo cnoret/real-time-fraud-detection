@@ -8,7 +8,7 @@
 ![scikit-learn](https://img.shields.io/badge/scikit--learn-1.7-F7931E?logo=scikitlearn&logoColor=white)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**An Airflow pipeline scores a replayed stream of card transactions every minute with a fraud model (ROC AUC 0.967 offline), stores each prediction next to its ground-truth label in PostgreSQL, and feeds a live monitoring dashboard.**
+**An orchestrated pipeline (Airflow, plus an hourly GitHub Actions run that keeps the demo live) scores a replayed stream of card transactions with a fraud model (ROC AUC 0.967 offline), stores each prediction next to its ground-truth label in PostgreSQL, and feeds a live monitoring dashboard.**
 
 **Data:** 555,719 simulated card transactions (Sparkov, `fraudTest.csv`) · 0.39% fraud (2,145 cases) · June to December 2020 · 50,000-transaction holdout replayed as a live stream
 
@@ -35,7 +35,7 @@ At the default 0.5 threshold, the logistic regression catches about 6 frauds in 
 
 ```mermaid
 flowchart LR
-    A[Transactions API<br/>FastAPI on Render] -->|1 transaction / min| B[Airflow DAG<br/>TaskFlow]
+    A[Transactions API<br/>FastAPI on Render] -->|transactions| B[Airflow DAG, local<br/>or GitHub Actions, hourly]
     A -->|ground-truth label,<br/>served separately| B
     B -->|features only| C[Model API<br/>FastAPI on Render]
     C -->|probability + decision| B
@@ -49,6 +49,7 @@ All hosting runs on free tiers.
 |---|---|---|
 | Transactions API | [`transactions-api/`](transactions-api/) | Replays a fixed 50,000-transaction holdout (195 frauds) as if payments were arriving now. The `is_fraud` label is served by a separate endpoint so it can never leak into the model's features. Live at [fraud-transactions-api.onrender.com](https://fraud-transactions-api.onrender.com/docs). |
 | Airflow DAG | [`airflow/dags/fraud_detection_dag_v2.py`](airflow/dags/fraud_detection_dag_v2.py) | Runs every minute: `ingestion` → `labeling` → `inference` → `persistence`. Rejects a payload that contains the label, aligns it to the model schema, and upserts the result on `transaction_id`. |
+| Scheduled run | [`.github/workflows/pipeline.yml`](.github/workflows/pipeline.yml), [`scripts/score_batch.py`](scripts/score_batch.py) | Same steps as the DAG, reused from [`fraud_pipeline.py`](airflow/dags/fraud_pipeline.py), on a GitHub Actions cron: every hour it wakes both APIs, scores a batch of 30 transactions (`/predict/batch`) and upserts them. Hourly keeps the two free Render services well under their 750 free instance-hours a month. |
 | Model API | [`model-api/`](model-api/) | Serves the scikit-learn pipeline (`/predict`, `/predict/batch`, `/thresholds`). The model file is versioned as a [GitHub Release](https://github.com/cnoret/real-time-fraud-detection/releases/tag/model-v1.0.0) and downloaded at build time with its exact scikit-learn version. Live at [fraud-model-api.onrender.com](https://fraud-model-api.onrender.com/docs). |
 | Database | Neon (PostgreSQL) | Table `fraud_transactions`: amount, merchant, fraud probability, prediction, ground truth, event time. |
 | Dashboard | [`dashboard/src/streamlit_app.py`](dashboard/src/streamlit_app.py) | KPIs, hourly probability trend, filters and CSV export. |
@@ -60,9 +61,12 @@ Both Render services sleep after 15 minutes without traffic and take about a min
 ```
 .
 ├── .github/workflows/tests.yml          # CI: ruff + pytest on every push and pull request
+├── .github/workflows/pipeline.yml       # Hourly scheduled run (GitHub Actions)
 ├── airflow/
 │   ├── dags/fraud_detection_dag_v2.py   # Orchestration (Airflow 3, TaskFlow)
+│   ├── dags/fraud_pipeline.py           # Scoring logic shared by the DAG and the scheduled run
 │   └── docker-compose.yaml              # Local Airflow stack
+├── scripts/score_batch.py               # Batch runner used by the scheduled workflow
 ├── transactions-api/                    # Transaction stream (FastAPI, Docker)
 ├── model-api/                           # Model serving (FastAPI, Docker)
 ├── dashboard/                           # Streamlit monitoring app
@@ -77,7 +81,7 @@ Both Render services sleep after 15 minutes without traffic and take about a min
 
 ## How to run
 
-**Tests** (68 tests, a few seconds; the same checks run in GitHub Actions on every push and pull request):
+**Tests** (90 tests, a few seconds; the same checks run in GitHub Actions on every push and pull request):
 
 ```bash
 pip install -r requirements-dev.txt
@@ -94,6 +98,16 @@ docker compose up
 
 Then open `http://localhost:8080` and set the Airflow Variable `NEON_DB_URI` (`TRANSACTIONS_API` and `MODEL_API` default to the Render URLs).
 
+**Scheduled run** (any machine, no Airflow):
+
+```bash
+pip install -r scripts/requirements.txt
+python scripts/score_batch.py --n 5 --dry-run          # score only, writes nothing
+NEON_DB_URI="postgresql://..." python scripts/score_batch.py --n 30
+```
+
+On GitHub, the workflow reads the repository secret `NEON_DB_URI` (and optional repository variables `TRANSACTIONS_API`, `MODEL_API`). It can also be started by hand from the Actions tab.
+
 **Dashboard** (local):
 
 ```bash
@@ -106,7 +120,7 @@ streamlit run dashboard/src/streamlit_app.py
 
 ## Limitations and next steps
 
-- **The pipeline only runs while the local Airflow stack is up.** Next: a scheduled GitHub Actions job so the demo keeps flowing.
+- **The hosted pipeline runs hourly, not in real time.** Free tiers set the pace: a GitHub Actions cron (which can start a few minutes late) and Render services that sleep when idle. GitHub also pauses scheduled workflows after 60 days without repository activity.
 - **Live precision and recall are not shown yet.** The DAG already stores `is_fraud`; the dashboard does not read it yet.
 - **The offline metrics are optimistic.** The model uses identifier-like columns (`cc_num`, `trans_num`, names, street) as features, and the replayed holdout comes from the same file it was trained on. Next: retrain without identifiers and exclude the holdout.
 - **No SQL modelling layer yet.** The test suite runs in CI (ruff + pytest); next is a SQL layer with data quality checks.

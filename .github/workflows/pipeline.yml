@@ -1,0 +1,46 @@
+# Scheduled fraud scoring: keeps the live dashboard fed without a local Airflow.
+# Runs the same logic as the Airflow DAG (airflow/dags/fraud_pipeline.py), one batch per run.
+name: Scheduled pipeline
+
+on:
+  schedule:
+    # Hourly, off the top of the hour (GitHub delays busy slots).
+    # Hourly keeps both free Render services well under the 750 free instance-hours a month:
+    # each run wakes them for ~2 min, then they sleep again after 15 idle minutes.
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      n:
+        description: "Transactions to score in this run (1-100)"
+        default: "30"
+        required: false
+
+concurrency:
+  group: scheduled-pipeline
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Score a batch of transactions
+        env:
+          NEON_DB_URI: ${{ secrets.NEON_DB_URI }}
+          TRANSACTIONS_API: ${{ vars.TRANSACTIONS_API }}
+          MODEL_API: ${{ vars.MODEL_API }}
+        run: python scripts/score_batch.py --n "${{ inputs.n || '30' }}"
