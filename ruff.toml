@@ -1,0 +1,6 @@
+# Lint configuration used by the CI (ruff check .).
+target-version = "py312"
+extend-exclude = ["EDA_training.ipynb"]
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
