@@ -20,9 +20,11 @@ curl -X POST https://fraud-model-api.onrender.com/predict \
 
 ## Modèle
 
-Le fichier `fraud_model.pkl` (environ 32 Mo) n'est pas versionné dans git : il est téléchargé
-depuis le Hugging Face Hub pendant la construction de l'image (argument `MODEL_URL` du
-`Dockerfile`). `scripts/fetch_model.py` lit dans le fichier la version de scikit-learn qui l'a
+Le fichier `fraud_model.pkl` (environ 32 Mo) n'est pas versionné dans git : il est publié comme
+pièce jointe d'une [Release GitHub](https://github.com/cnoret/real-time-fraud-detection/releases)
+(tag `model-v1.0.0`) et téléchargé pendant la construction de l'image (argument `MODEL_VERSION`
+du `Dockerfile`). Publier un nouveau modèle revient à créer une nouvelle release, puis à changer
+`MODEL_VERSION` : chaque déploiement sait exactement quelle version du modèle il sert. `scripts/fetch_model.py` lit dans le fichier la version de scikit-learn qui l'a
 enregistré, et l'image installe exactement cette version : un modèle scikit-learn ne se recharge
 de façon fiable qu'avec la même version. La construction échoue si le modèle ne se charge pas.
 
