@@ -30,6 +30,8 @@ REQUEST_TIMEOUT = 90
 LABEL_TIMEOUT = 30
 # The Transactions API serves at most 100 transactions or labels per call.
 MAX_BATCH = 100
+# Transactions per call to the model API's /predict/batch.
+PREDICT_CHUNK = 20
 
 DEFAULTS: Dict[str, Any] = {
     "amt": 100.0,
@@ -269,18 +271,27 @@ def predict(base: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     return parse_prediction(r.json())
 
 
-def predict_batch(base: str, payloads: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Score several prepared payloads in one call to the model API."""
-    r = requests.post(
-        _url(base, "/predict/batch"),
-        json=[{"data": p} for p in payloads],
-        timeout=REQUEST_TIMEOUT,
-    )
-    r.raise_for_status()
-    preds = r.json().get("predictions", [])
-    if len(preds) != len(payloads):
-        raise ValueError(f"Model API returned {len(preds)} predictions for {len(payloads)} inputs")
-    return [parse_prediction(p) for p in preds]
+def predict_batch(
+    base: str, payloads: Sequence[Dict[str, Any]], chunk_size: int = PREDICT_CHUNK
+) -> List[Dict[str, Any]]:
+    """Score prepared payloads with the model API, a chunk per call.
+
+    Small chunks keep every call well under REQUEST_TIMEOUT on a free-tier CPU.
+    """
+    preds: List[Dict[str, Any]] = []
+    for start in range(0, len(payloads), chunk_size):
+        chunk = list(payloads[start:start + chunk_size])
+        r = requests.post(
+            _url(base, "/predict/batch"),
+            json=[{"data": p} for p in chunk],
+            timeout=REQUEST_TIMEOUT,
+        )
+        r.raise_for_status()
+        got = r.json().get("predictions", [])
+        if len(got) != len(chunk):
+            raise ValueError(f"Model API returned {len(got)} predictions for {len(chunk)} inputs")
+        preds.extend(parse_prediction(p) for p in got)
+    return preds
 
 
 def wait_until_healthy(base: str, attempts: int = 6, delay: float = 20.0) -> bool:

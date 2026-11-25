@@ -43,7 +43,7 @@ CATEGORICAL_FEATURES = [
 # ── Mock model factory ────────────────────────────────────────────────────────
 def _make_mock_model(fraud_proba: float = 0.2):
     m = MagicMock()
-    m.predict_proba.return_value = np.array([[1 - fraud_proba, fraud_proba]])
+    m.predict_proba.side_effect = lambda df: np.array([[1 - fraud_proba, fraud_proba]] * len(df))
     num_t, cat_t, prep = MagicMock(), MagicMock(), MagicMock()
     num_t.feature_names_in_ = NUMERIC_FEATURES
     cat_t.feature_names_in_ = CATEGORICAL_FEATURES

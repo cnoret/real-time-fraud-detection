@@ -106,6 +106,15 @@ class TestApiCalls:
         assert preds == [{"probability": 0.01, "prediction": 0}, {"probability": 0.9, "prediction": 1}]
         assert post.call_args.kwargs["json"] == [{"data": {"amt": 1}}, {"data": {"amt": 2}}]
 
+    def test_predict_batch_splits_into_chunks(self):
+        def fake_post(url, json, timeout):
+            return _response({"predictions": [{"probability": 0.0, "prediction": 0}] * len(json)})
+
+        with patch.object(fp.requests, "post", side_effect=fake_post) as post:
+            preds = fp.predict_batch("http://model", [{"amt": i} for i in range(45)], chunk_size=20)
+        assert len(preds) == 45
+        assert [len(c.kwargs["json"]) for c in post.call_args_list] == [20, 20, 5]
+
     def test_predict_batch_length_mismatch(self):
         with patch.object(fp.requests, "post", return_value=_response({"predictions": []})):
             with pytest.raises(ValueError, match="0 predictions for 1"):
