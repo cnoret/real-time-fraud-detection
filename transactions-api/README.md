@@ -34,9 +34,12 @@ sinon la mesure de performance serait biaisée.
 
 ## Hébergement
 
-Le Space utilise le SDK **Gradio** (gratuit) : Hugging Face exécute `python app.py`, qui lance
-l'application FastAPI avec uvicorn sur le port 7860. Gradio n'est pas utilisé dans le code.
-Le `Dockerfile` reste disponible pour un lancement en conteneur, en local ou chez un autre hébergeur.
+L'API est déployée sur **Render** (offre gratuite) à partir du `Dockerfile`, décrit dans
+`render.yaml` à la racine du dépôt. Le service se met en veille après 15 minutes sans trafic
+et se réveille au premier appel (environ une minute).
+
+Les Spaces Hugging Face Gradio et Docker demandent désormais un abonnement PRO, d'où ce choix.
+L'en-tête YAML ci-dessus reste valable pour un éventuel Space.
 
 ## Lancer en local
 

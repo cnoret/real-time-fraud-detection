@@ -21,9 +21,9 @@ from airflow.utils.task_group import TaskGroup
 from airflow.operators.empty import EmptyOperator
 
 # ── Config ────────────────────────────────────────────────────────────────────
-# Self-hosted transactions source (transactions-api/ in this repo, deployed on HF Spaces).
+# Self-hosted transactions source (transactions-api/ in this repo, deployed on Render).
 # Can be overridden with the Airflow Variable TRANSACTIONS_API.
-TRANSACTIONS_API_DEFAULT = "https://cnoret-fraud-transactions-api.hf.space"
+TRANSACTIONS_API_DEFAULT = "https://fraud-transactions-api.onrender.com"
 HF_SPACE_API = "https://cnoret-fraud-detection-api.hf.space/predict"
 HEALTH_URL = HF_SPACE_API.replace("/predict", "/health")
 

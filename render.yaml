@@ -1,0 +1,15 @@
+# Render Blueprint: free web service for the transactions API
+# https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: fraud-transactions-api
+    runtime: docker
+    plan: free
+    rootDir: transactions-api
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    buildFilter:
+      paths:
+        - transactions-api/**
