@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from html import escape
 
 import streamlit as st
@@ -33,12 +34,32 @@ CSS = """
 .nc-meter .v { font-family: 'IBM Plex Mono', monospace; text-align: right; }
 .nc-meter .k { color: #A9ACB7; }
 .nc-note { color: #9EA1AC; font-size: 0.8rem; }
+.nc-brand { display: flex; align-items: center; gap: 12px; padding: 4px 8px 14px; }
+.nc-brand span { font-weight: 600; font-size: 1.2rem; color: #E7E7EB; letter-spacing: 0.01em; }
 </style>
 """
 
 
 def inject_css() -> None:
     st.html(CSS)
+
+
+SHIELD_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" '
+    'stroke="#C9BBF5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'
+    '<path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6l8-3z"/><path d="M9 12l2 2 4-4"/></svg>'
+)
+# st.html strips inline <svg>, so the icon goes in as an image.
+SHIELD = (
+    '<img width="26" height="26" alt="" src="data:image/svg+xml;base64,'
+    + base64.b64encode(SHIELD_SVG.encode()).decode()
+    + '">'
+)
+
+
+def brand(name: str) -> None:
+    """Shield icon and app name, at the top of the sidebar."""
+    st.html(f'<div class="nc-brand">{SHIELD}<span>{escape(name)}</span></div>')
 
 
 def header(title: str, subtitle: str) -> None:

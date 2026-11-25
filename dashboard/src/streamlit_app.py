@@ -21,17 +21,21 @@ if not db.db_uri():
     )
     st.stop()
 
-pages = st.navigation(
-    [
-        st.Page(views.overview, title="Overview", icon=":material/space_dashboard:", default=True),
-        st.Page(views.model_performance, title="Model performance", icon=":material/insights:"),
-        st.Page(views.pipeline_runs, title="Pipeline runs", icon=":material/schedule:"),
-        st.Page(views.data_quality, title="Data quality", icon=":material/fact_check:"),
-        st.Page(views.transactions, title="Transactions", icon=":material/table_rows:"),
-    ]
-)
+PAGES = [
+    st.Page(views.overview, title="Overview", icon=":material/space_dashboard:", default=True),
+    st.Page(views.model_performance, title="Model performance", icon=":material/insights:"),
+    st.Page(views.pipeline_runs, title="Pipeline runs", icon=":material/schedule:"),
+    st.Page(views.data_quality, title="Data quality", icon=":material/fact_check:"),
+    st.Page(views.transactions, title="Transactions", icon=":material/table_rows:"),
+]
+# Hidden built-in menu: the sidebar is drawn below so the brand header sits above the links.
+pages = st.navigation(PAGES, position="hidden")
 
 with st.sidebar:
+    ui.brand("Fraud Monitor")
+    for page in PAGES:
+        st.page_link(page, width="stretch")
+    st.divider()
     st.segmented_control(
         "Time window",
         list(views.WINDOWS),
