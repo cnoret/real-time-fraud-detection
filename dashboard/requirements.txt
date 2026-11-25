@@ -1,4 +1,0 @@
-altair
-pandas
-streamlit
-psycopg2-binary

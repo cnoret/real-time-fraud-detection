@@ -16,7 +16,7 @@ st.title("🕵️ Real-Time Fraud Monitor")
 DB_URI = os.getenv("NEON_DB_URI")
 if not DB_URI:
     st.error(
-        "NEON_DB_URI environment variable is not set. Add it in your Space → Settings → Secrets."
+        "NEON_DB_URI environment variable is not set. Add it to the app secrets (Streamlit Community Cloud → Settings → Secrets)."
     )
     st.stop()
 
