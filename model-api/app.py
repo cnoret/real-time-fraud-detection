@@ -1,4 +1,10 @@
-"""A FastAPI application for fraud detection with configurable thresholds."""
+"""Fraud detection model API (FastAPI), with configurable decision thresholds.
+
+Serves the scikit-learn pipeline trained in EDA_training.ipynb. The model file is
+downloaded at build time (see Dockerfile), so it is not stored in this repository.
+"""
+
+import os
 
 from fastapi import FastAPI
 import joblib
@@ -6,10 +12,11 @@ import pandas as pd
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
 
-app = FastAPI()
+app = FastAPI(title="Fraud Detection Model API", version="1.1.0")
 
 # Load the pre-trained model
-model = joblib.load("fraud_model.pkl")
+MODEL_PATH = os.getenv("MODEL_PATH", "fraud_model.pkl")
+model = joblib.load(MODEL_PATH)
 
 THRESHOLDS = {
     "conservative": 0.5,
@@ -44,6 +51,12 @@ class PredictionResponse(BaseModel):
     threshold_used: float
     risk_level: str
     details: Dict[str, Any]
+
+
+@app.get("/")
+def root():
+    """Welcome endpoint"""
+    return {"message": "Fraud Detection API - Ready to detect fraud!", "docs": "/docs"}
 
 
 @app.get("/health")
@@ -126,4 +139,4 @@ def get_thresholds():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8000")))

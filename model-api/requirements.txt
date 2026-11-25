@@ -1,0 +1,6 @@
+# scikit-learn is installed by the Dockerfile at the exact version the model was saved with.
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+pydantic>=2
+pandas==2.2.3
+joblib

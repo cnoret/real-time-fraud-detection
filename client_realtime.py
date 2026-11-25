@@ -6,8 +6,9 @@ from datetime import datetime
 
 # API URLs
 TRANSACTIONS_URL = "https://fraud-transactions-api.onrender.com/current-transactions"
-PREDICT_URL = "https://cnoret-fraud-detection-api.hf.space/predict"
-HEALTH_URL = "https://cnoret-fraud-detection-api.hf.space/health"
+MODEL_API = "https://fraud-model-api.onrender.com"
+PREDICT_URL = f"{MODEL_API}/predict"
+HEALTH_URL = f"{MODEL_API}/health"
 
 
 def get_expected_columns():
