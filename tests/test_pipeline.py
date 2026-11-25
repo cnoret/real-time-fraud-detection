@@ -53,15 +53,28 @@ class TestParsing:
         assert fp.parse_labels_response(body) == {"a": 0, "b": 1}
 
     def test_expected_columns_from_health(self):
-        health = {"expected_numeric": ["amt"], "expected_categorical": ["merchant"]}
-        assert fp.expected_columns_from_health(health) == ["amt", "merchant"]
+        health = {"input_columns": ["amt", "category"]}
+        assert fp.expected_columns_from_health(health) == ["amt", "category"]
 
     def test_expected_columns_empty_health_falls_back(self):
         assert fp.expected_columns_from_health({}) == fp.FALLBACK_SCHEMA
 
+    def test_fallback_schema_matches_model_inputs(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "model-api"))
+        import fraud_features
+
+        assert fp.FALLBACK_SCHEMA == fraud_features.INPUT_COLUMNS
+
+    def test_parse_prediction_keeps_version_and_threshold(self):
+        pred = {"probability": 0.7, "prediction": 1, "threshold_used": 0.36, "model_version": "model-v2.0.0"}
+        assert fp.parse_prediction(pred) == {
+            "probability": 0.7, "prediction": 1, "model_version": "model-v2.0.0", "threshold": 0.36}
+
     def test_build_row_column_order(self):
-        row = fp.build_row(TXS[1], {"probability": 0.7, "prediction": 1}, 1)
-        assert row == ("b", 900.0, "shop_b", 0.7, 1, 1, "2026-11-25T18:00:00+00:00")
+        pred = {"probability": 0.7, "prediction": 1, "model_version": "model-v2.0.0", "threshold": 0.36}
+        row = fp.build_row(TXS[1], pred, 1)
+        assert row == ("b", 900.0, "shop_b", 0.7, 1, 1, "2026-11-25T18:00:00+00:00", "model-v2.0.0", 0.36)
+        assert row.__len__() == fp.UPSERT_SQL.count("%s")
 
     def test_build_row_unknown_label_is_null(self):
         assert fp.build_row(TXS[0], {"probability": 0.0, "prediction": 0}, None)[5] is None
@@ -103,7 +116,7 @@ class TestApiCalls:
                                 {"probability": 0.9, "prediction": 1, "risk_level": "CRITICAL"}]}
         with patch.object(fp.requests, "post", return_value=_response(body)) as post:
             preds = fp.predict_batch("http://model", [{"amt": 1}, {"amt": 2}])
-        assert preds == [{"probability": 0.01, "prediction": 0}, {"probability": 0.9, "prediction": 1}]
+        assert [(p["probability"], p["prediction"]) for p in preds] == [(0.01, 0), (0.9, 1)]
         assert post.call_args.kwargs["json"] == [{"data": {"amt": 1}}, {"data": {"amt": 2}}]
 
     def test_predict_batch_splits_into_chunks(self):
@@ -120,7 +133,7 @@ class TestApiCalls:
         with patch.object(fp.requests, "post",
                           side_effect=[_response({}, status=502), requests.Timeout("slow"), ok]) as post, \
              patch.object(fp.time, "sleep"):
-            assert fp.predict_batch("http://model", [{"amt": 1}]) == [{"probability": 0.2, "prediction": 1}]
+            assert fp.predict_batch("http://model", [{"amt": 1}])[0]["probability"] == 0.2
         assert post.call_count == 3
 
     def test_predict_batch_gives_up_after_retries(self):
@@ -178,7 +191,7 @@ class TestScoreBatch:
     def test_run_end_to_end(self, sb):
         conn = MagicMock()
         cur = conn.cursor.return_value.__enter__.return_value
-        health = {"expected_numeric": ["amt"], "expected_categorical": ["merchant", "trans_num"]}
+        health = {"input_columns": ["amt", "category"]}
         labels = {"labels": [{"trans_num": "a", "is_fraud": 0}, {"trans_num": "b", "is_fraud": 1}]}
 
         def fake_get(url, **kwargs):
@@ -198,9 +211,8 @@ class TestScoreBatch:
                              connect=lambda uri: conn)
 
         assert written == 2
-        # Payloads are aligned to the model schema (no event_time, no label).
-        assert post.call_args.kwargs["json"][1] == {
-            "data": {"amt": 900.0, "merchant": "shop_b", "trans_num": "b"}}
+        # Payloads are aligned to the model schema (no id, no event_time, no label).
+        assert post.call_args.kwargs["json"][1] == {"data": {"amt": 900.0, "category": None}}
         rows = cur.executemany.call_args.args[1]
         assert [(r[0], r[4], r[5]) for r in rows] == [("a", 0, 0), ("b", 1, 1)]
         conn.close.assert_called_once()

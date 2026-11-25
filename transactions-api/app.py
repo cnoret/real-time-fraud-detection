@@ -134,8 +134,8 @@ def transactions(
 ) -> dict[str, Any]:
     """Return n transactions as JSON records, stamped with the time they were emitted.
 
-    The original fields (including `unix_time` and `trans_date_trans_time`,
-    which the model was trained on) are kept as-is; `event_time` is the
+    The original fields are kept as-is (the model derives hour, day of week
+    and cardholder age from `trans_date_trans_time`); `event_time` is the
     emission time, useful for freshness monitoring downstream.
     """
     event_time = datetime.now(timezone.utc).isoformat(timespec="seconds")

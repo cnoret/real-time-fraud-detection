@@ -16,6 +16,7 @@ APP = Path(__file__).resolve().parents[1] / "dashboard" / "src" / "streamlit_app
 COLUMNS = [
     "transaction_id", "amount", "merchant", "fraud_probability",
     "prediction", "is_fraud", "event_time", "inserted_at",
+    "model_version", "decision_threshold",
 ]
 
 
@@ -32,6 +33,8 @@ def _frame(rows):
                 "is_fraud": label,
                 "event_time": NOW - timedelta(minutes=ago, seconds=30),
                 "inserted_at": NOW - timedelta(minutes=ago),
+                "model_version": metrics.CURRENT_MODEL,
+                "decision_threshold": metrics.SERVED_THRESHOLD,
             }
             for i, (p, pred, label, ago) in enumerate(rows)
         ],
@@ -70,6 +73,23 @@ def test_confusion_with_custom_threshold(sample):
     c = metrics.confusion(sample, threshold=0.5)
     assert (c.tp, c.fp, c.fn, c.tn) == (2, 0, 1, 3)
     assert c.precision == 1.0
+
+
+def test_for_model_treats_unversioned_rows_as_legacy(sample):
+    mixed = sample.assign(model_version=[None, None] + [metrics.CURRENT_MODEL] * 5)
+    assert len(metrics.for_model(mixed, metrics.LEGACY_MODEL)) == 2
+    assert len(metrics.for_model(mixed, metrics.CURRENT_MODEL)) == 5
+    assert len(metrics.for_model(sample.drop(columns="model_version"), metrics.LEGACY_MODEL)) == 7
+
+
+def test_served_threshold_prefers_stored_value(sample):
+    assert metrics.served_threshold(sample) == metrics.SERVED_THRESHOLD
+    legacy = sample.assign(decision_threshold=None)
+    assert metrics.served_threshold(legacy, metrics.LEGACY_MODEL) == metrics.LEGACY_THRESHOLD
+
+
+def test_offline_reference_is_at_the_served_threshold():
+    assert metrics.OFFLINE_THRESHOLD == pytest.approx(metrics.SERVED_THRESHOLD)
 
 
 def test_rates_are_none_without_denominator():

@@ -43,6 +43,13 @@ with st.sidebar:
         key="window",
         help="Applies to every page except Data quality, which checks the whole table.",
     )
+    st.selectbox(
+        "Model",
+        list(views.MODELS),
+        format_func=views.MODELS.get,
+        key="model",
+        help="Rows are scored by one model release each. The retired v1 had seen the replayed data.",
+    )
     if st.button("Refresh data", icon=":material/refresh:", width="stretch"):
         st.cache_data.clear()
     st.caption("Queries are cached for 60 s. All times are UTC.")

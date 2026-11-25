@@ -4,7 +4,6 @@ import pytest
 
 # Airflow is mocked in conftest.py before this import runs.
 from fraud_detection_dag_v2 import (
-    DEFAULTS,
     FALLBACK_SCHEMA,
     _build_payload,
     _fix_timestamps,
@@ -49,46 +48,30 @@ class TestParseLabelResponse:
 
 # ── _fix_timestamps ───────────────────────────────────────────────────────────
 class TestFixTimestamps:
-    def test_rescales_ms_after_2022(self):
-        ts_ms = 1_700_000_000_000  # Nov 2023 in ms
-        result = _fix_timestamps(
-            {"current_time": ts_ms}, ["unix_time", "trans_date_trans_time"]
-        )
-        training_start = 1_577_836_800
-        year_seconds = 31_536_000
-        assert training_start <= result["unix_time"] < training_start + year_seconds
+    def test_source_value_wins(self):
+        tx = {"trans_date_trans_time": "2020-08-02 07:55:28", "unix_time": 1_375_430_128}
+        assert _fix_timestamps(tx)["trans_date_trans_time"] == "2020-08-02 07:55:28"
 
-    def test_passes_through_ms_before_2022(self):
-        ts_ms = 1_600_000_000_000  # Sep 2020 in ms (before 2022-01-01 threshold)
-        result = _fix_timestamps({"current_time": ts_ms}, ["unix_time"])
-        assert result["unix_time"] == ts_ms // 1000
+    def test_derived_from_current_time_ms_in_utc(self):
+        result = _fix_timestamps({"current_time": 1_700_000_000_000})
+        assert result["trans_date_trans_time"] == "2023-11-14 22:13:20"
 
-    def test_converts_unix_to_date_string(self):
-        result = _fix_timestamps(
-            {"unix_time": 1_592_222_400}, ["unix_time", "trans_date_trans_time"]
-        )
-        assert "trans_date_trans_time" in result
-        assert "2020" in result["trans_date_trans_time"]
-
-    def test_date_string_format(self):
-        result = _fix_timestamps(
-            {"unix_time": 1_592_222_400}, ["unix_time", "trans_date_trans_time"]
-        )
-        # Expect YYYY-MM-DD HH:MM:SS
-        parts = result["trans_date_trans_time"].split(" ")
-        assert len(parts) == 2
-        assert len(parts[0].split("-")) == 3
+    def test_derived_from_unix_time_in_utc(self):
+        result = _fix_timestamps({"unix_time": 1_592_222_400})
+        assert result["trans_date_trans_time"] == "2020-06-15 12:00:00"
 
     def test_no_timestamp_fields_unchanged(self):
         tx = {"amt": 42.0, "merchant": "Store"}
-        result = _fix_timestamps(tx, ["amt", "merchant"])
-        assert result == tx
+        assert _fix_timestamps(tx) == tx
+
+    def test_bad_timestamp_is_left_missing(self):
+        assert "trans_date_trans_time" not in _fix_timestamps({"current_time": "soon"})
 
     def test_returns_copy_not_mutation(self):
         original = {"current_time": 1_700_000_000_000}
-        result = _fix_timestamps(original, ["unix_time"])
+        result = _fix_timestamps(original)
         assert result is not original
-        assert "current_time" not in original or original["current_time"] == 1_700_000_000_000
+        assert original == {"current_time": 1_700_000_000_000}
 
 
 # ── _build_payload ────────────────────────────────────────────────────────────
@@ -99,28 +82,14 @@ class TestBuildPayload:
         assert payload["merchant"] == sample_transaction["merchant"]
 
     def test_filters_to_expected_columns(self, sample_transaction):
-        payload = _build_payload(sample_transaction, ["amt", "merchant"])
-        assert set(payload.keys()) == {"amt", "merchant"}
+        payload = _build_payload(sample_transaction, ["amt", "category"])
+        assert payload == {"amt": 150.75, "category": "misc_pos"}
 
-    def test_fills_defaults_for_missing_fields(self):
-        payload = _build_payload({}, ["amt", "merchant", "gender"])
-        assert payload["amt"] == DEFAULTS["amt"]
-        assert payload["merchant"] == DEFAULTS["merchant"]
-        assert payload["gender"] == DEFAULTS["gender"]
+    def test_missing_fields_are_null_not_invented(self):
+        assert _build_payload({}, ["amt", "gender"]) == {"amt": None, "gender": None}
 
-    def test_none_value_falls_back_to_default(self):
-        payload = _build_payload({"amt": None}, ["amt"])
-        assert payload["amt"] == DEFAULTS["amt"]
-
-    def test_unknown_column_gets_zero(self):
-        payload = _build_payload({}, ["unknown_col"])
-        assert payload["unknown_col"] == 0
-
-    def test_trans_num_unknown_gets_default_string(self):
-        payload = _build_payload({}, ["trans_num"])
-        assert isinstance(payload["trans_num"], str)
-        assert payload["trans_num"].startswith("default_")
-
-    def test_all_fallback_schema_columns_covered(self):
-        payload = _build_payload({}, FALLBACK_SCHEMA)
-        assert set(payload.keys()) == set(FALLBACK_SCHEMA)
+    def test_fallback_schema_has_no_identifier(self, sample_transaction):
+        payload = _build_payload(sample_transaction, FALLBACK_SCHEMA)
+        assert set(payload) == set(FALLBACK_SCHEMA)
+        for identifier in ("trans_num", "cc_num", "first", "last", "street", "zip", "merchant", "unix_time"):
+            assert identifier not in payload
