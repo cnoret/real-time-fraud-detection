@@ -6,7 +6,7 @@ End-to-end fraud detection pipeline with **Airflow**, **Hugging Face Spaces**, *
 ## ✨ Features
 
 - **Airflow DAGs**:
-  - Fetch real-time transactions (Jedha API based on Kaggle dataset.)
+  - Fetch real-time transactions from our own **Transactions API** (`transactions-api/`, replays a 50k holdout of the Kaggle Sparkov dataset, with ground-truth labels served separately)
   - Preprocess + send to Hugging Face model
   - Store results in NeonDB
 - **Streamlit Dashboard**:
@@ -93,7 +93,7 @@ apache-airflow
 ## 📊 Architecture
 
 ```
-Jedha API (transactions) 
+Transactions API (HF Space, transactions-api/) 
    → Airflow DAG 
       → Hugging Face Space (fraud model API) 
          → NeonDB (Postgres) 
