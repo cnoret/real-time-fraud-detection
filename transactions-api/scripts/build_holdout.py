@@ -1,13 +1,13 @@
-"""Construit le jeu de rejeu servi par l'API de transactions.
+"""Build the replay set served by the Transactions API.
 
-Source : fraudTest.csv (jeu simulé « Sparkov », 555 719 transactions, 0,39 % de fraudes).
-On tire un échantillon fixe (graine 42) de 50 000 lignes qui conserve le taux
-de fraude naturel. Ces lignes forment un jeu « holdout » : tout futur
-réentraînement du modèle doit exclure leurs trans_num pour que la mesure de
-performance en production reste honnête.
+Source: fraudTest.csv (simulated "Sparkov" dataset, 555,719 transactions, 0.39% fraud).
+A fixed sample (seed 42) of 50,000 rows keeps the natural fraud rate. The model
+is trained on fraudTrain.csv only, which ends before fraudTest.csv starts, so these
+rows are unseen data; training/train.py checks that none of their trans_num is in
+its training data.
 
-Usage :
-    python transactions-api/scripts/build_holdout.py [chemin_ou_url_du_csv]
+Usage:
+    python transactions-api/scripts/build_holdout.py [path_or_url_of_the_csv]
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ def build(source: str = SOURCE_URL, output: Path = OUTPUT) -> pd.DataFrame:
     output.parent.mkdir(parents=True, exist_ok=True)
     holdout.to_parquet(output, index=False, compression="zstd")
     print(
-        f"{len(holdout)} lignes, {int(holdout.is_fraud.sum())} fraudes "
+        f"{len(holdout)} rows, {int(holdout.is_fraud.sum())} frauds "
         f"({holdout.is_fraud.mean():.2%}) -> {output}"
     )
     return holdout

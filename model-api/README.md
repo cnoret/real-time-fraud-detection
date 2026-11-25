@@ -1,40 +1,55 @@
 # Fraud Detection Model API
 
-API FastAPI qui sert le modèle de détection de fraude (pipeline scikit-learn entraîné dans
-`EDA_training.ipynb`). Le DAG Airflow l'appelle pour chaque transaction.
+FastAPI service that serves the fraud detection model, a scikit-learn pipeline trained by
+[`training/train.py`](../training/train.py). The scheduled pipeline and the Airflow DAG call it
+for every transaction.
 
-| Endpoint | Rôle |
+| Endpoint | Purpose |
 |---|---|
-| `GET /health` | état du service et colonnes attendues par le modèle |
-| `POST /predict` | probabilité de fraude, décision et niveau de risque pour une transaction |
-| `POST /predict/batch` | la même chose pour une liste de transactions |
-| `GET /thresholds` | seuils de décision disponibles (`balanced` = 0,1 par défaut) |
+| `GET /health` | service status, model version, raw input columns and default decision threshold |
+| `POST /predict` | fraud probability, decision and risk level for one transaction |
+| `POST /predict/batch` | the same for a list of transactions, in a single model call |
+| `GET /thresholds` | named decision thresholds (`balanced`, the default, maximises F1 on validation) |
+| `GET /model` | the model card: training data, protocol, thresholds and offline metrics |
 
-Exemple :
+The pipeline computes its own features ([`fraud_features.py`](fraud_features.py)), so a request
+sends raw transaction fields. Extra fields (ids, names) are ignored and missing ones are scored as
+missing values and listed in `details.missing_fields`.
 
 ```bash
 curl -X POST https://fraud-model-api.onrender.com/predict \
   -H "Content-Type: application/json" \
-  -d '{"data": {"amt": 950.0, "category": "shopping_net", ...}, "threshold": "balanced"}'
+  -d '{"data": {"trans_date_trans_time": "2020-08-02 23:15:00", "amt": 950.0,
+                "category": "shopping_net", "gender": "F", "dob": "1964-11-17",
+                "city_pop": 5438, "lat": 41.47, "long": -72.58,
+                "merch_lat": 41.24, "merch_long": -71.84},
+       "threshold": "balanced"}'
 ```
 
-## Modèle
+## Model
 
-Le fichier `fraud_model.pkl` (environ 32 Mo) n'est pas versionné dans git : il est publié comme
-pièce jointe d'une [Release GitHub](https://github.com/cnoret/real-time-fraud-detection/releases)
-(tag `model-v1.0.0`) et téléchargé pendant la construction de l'image (argument `MODEL_VERSION`
-du `Dockerfile`). Publier un nouveau modèle revient à créer une nouvelle release, puis à changer
-`MODEL_VERSION` : chaque déploiement sait exactement quelle version du modèle il sert. `scripts/fetch_model.py` lit dans le fichier la version de scikit-learn qui l'a
-enregistré, et l'image installe exactement cette version : un modèle scikit-learn ne se recharge
-de façon fiable qu'avec la même version. La construction échoue si le modèle ne se charge pas.
+`fraud_model.pkl` (0.5 MB) is not stored in git: it is attached to a
+[GitHub Release](https://github.com/cnoret/real-time-fraud-detection/releases) (tag `model-v2.0.0`)
+and downloaded when the image is built (`MODEL_VERSION` build argument in the `Dockerfile`). Its
+model card, [`model_card.json`](model_card.json), is versioned here and records the file's SHA-256.
 
-## Hébergement
+At build time:
 
-Déployée sur **Render** (offre gratuite) avec l'API de transactions, via `render.yaml` à la
-racine du dépôt. Le service se met en veille après 15 minutes sans trafic et se réveille au
-premier appel (environ une minute).
+- `scripts/fetch_model.py` downloads the pickle and reads the scikit-learn version that saved it;
+  the image installs exactly that version, since a pickled estimator only reloads reliably with it.
+- `scripts/check_model.py` fails the build if the card's version or hash does not match the
+  downloaded file, or if the pipeline cannot score a sample transaction.
 
-En local :
+Publishing a new model: run the training script, attach the pickle to a new release, copy the new
+card here and bump `MODEL_VERSION`.
+
+## Hosting
+
+Deployed on **Render** (free plan) with the Transactions API, from `render.yaml` at the repository
+root. The service sleeps after 15 minutes without traffic and wakes up on the next call (about a
+minute).
+
+Locally:
 
 ```bash
 docker build -t fraud-model-api model-api

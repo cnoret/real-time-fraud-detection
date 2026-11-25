@@ -21,16 +21,30 @@ FRESHNESS_WORDS = {"ok": "Fresh", "warn": "Late", "down": "Stale", "empty": "No 
 
 # ── Shared context ────────────────────────────────────────────────────────────
 
+MODELS = {
+    metrics.CURRENT_MODEL: f"{metrics.CURRENT_MODEL} (served)",
+    metrics.LEGACY_MODEL: f"{metrics.LEGACY_MODEL} (retired, leaky)",
+}
+
+
 def _window() -> str:
     return st.session_state.get("window") or DEFAULT_WINDOW
 
 
+def _model() -> str:
+    return st.session_state.get("model") or metrics.CURRENT_MODEL
+
+
 def _context():
-    """(table-wide figures, rows in the selected window, window label)."""
+    """(table-wide figures, rows of the selected model in the selected window, window label)."""
     overall = db.load_overall()
     delta = WINDOWS[_window()]
     since = None if delta is None else (overall["now"] - delta).floor("min").to_pydatetime()
-    return overall, db.load_transactions(since), _window()
+    return overall, metrics.for_model(db.load_transactions(since), _model()), _window()
+
+
+def _threshold(df) -> float:
+    return metrics.served_threshold(df, _model())
 
 
 def _empty_window(overall: dict, label: str) -> bool:
@@ -39,7 +53,10 @@ def _empty_window(overall: dict, label: str) -> bool:
         st.info("The table is empty: no transaction has been scored yet.")
         return True
     age = metrics.format_age(overall["now"] - overall["last"])
-    st.info(f"No transaction in the last {label}. The latest insert is {age} old: pick a wider window in the sidebar.")
+    st.info(
+        f"No transaction scored by {_model()} in the last {label}. The latest insert is {age} old: "
+        "pick a wider window or another model in the sidebar."
+    )
     return True
 
 
@@ -128,7 +145,7 @@ def overview() -> None:
                 }
                 for r in latest.itertuples()
             ],
-            hot_from=metrics.SERVED_THRESHOLD,
+            hot_from=_threshold(df),
         )
 
     left, right = st.columns([1, 2], gap="medium")
@@ -140,7 +157,7 @@ def overview() -> None:
             ("F1", conf.f1, "n/a" if conf.f1 is None else f"{conf.f1:.2f}"),
         ])
         st.altair_chart(charts.confusion_matrix(conf), theme=None, width="stretch")
-        st.caption(f"Stored decisions, threshold {metrics.SERVED_THRESHOLD:.2f}, on {conf.labelled:,} labelled rows.")
+        st.caption(f"Stored decisions of {_model()}, threshold {_threshold(df):.2f}, on {conf.labelled:,} labelled rows.")
     with right, st.container(border=True):
         _section("Recent ingestion batches")
         _batches_table(metrics.batches(df).head(8))
@@ -156,38 +173,53 @@ def model_performance() -> None:
         st.info("No labelled transaction in this window yet: labels arrive with each batch.")
         return
 
+    served = _threshold(df)
     threshold = st.slider(
         "Decision threshold",
-        0.01, 0.99, metrics.SERVED_THRESHOLD, 0.01,
-        help=f"The pipeline stores decisions at {metrics.SERVED_THRESHOLD:.2f} (the API's 'balanced' setting). "
+        0.01, 0.99, round(served, 2), 0.01,
+        help=f"The pipeline stores decisions at {served:.2f} (the API's 'balanced' setting). "
         "Move it to see the trade-off between missed frauds and false alerts.",
     )
     conf = metrics.confusion(df, threshold)
     auc = metrics.roc_auc(df)
-    off = metrics.OFFLINE_METRICS
+    current = _model() == metrics.CURRENT_MODEL
+    off = metrics.OFFLINE_METRICS if current else {}
+    # Rates move with the threshold: compare with offline only at the threshold they were measured at.
+    same_threshold = current and abs(threshold - metrics.OFFLINE_THRESHOLD) < 0.006
 
-    def delta(live, ref):
-        return None if live is None else f"{(live - ref) * 100:+.1f} pts vs offline"
+    def delta(live, key):
+        ref = off.get(key)
+        if live is None or ref is None or not same_threshold:
+            return None
+        return f"{(live - ref) * 100:+.1f} pts vs offline"
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric(
-        "Recall", ui.pct(conf.recall), delta(conf.recall, off["recall"]),
+        "Recall", ui.pct(conf.recall), delta(conf.recall, "recall"),
         help="Share of actual frauds the model flagged.", border=True,
     )
     c2.metric(
-        "Precision", ui.pct(conf.precision), delta(conf.precision, off["precision"]),
+        "Precision", ui.pct(conf.precision), delta(conf.precision, "precision"),
         help="Share of alerts that were actual frauds.", border=True,
     )
     c3.metric(
         "F1 score", "n/a" if conf.f1 is None else f"{conf.f1:.2f}",
+        None if conf.f1 is None or off.get("f1") is None or not same_threshold
+        else f"{conf.f1 - off['f1']:+.2f} vs offline",
         help="Harmonic mean of precision and recall.", border=True,
     )
     c4.metric(
         "ROC AUC",
         "n/a" if auc is None else f"{auc:.3f}",
-        None if auc is None else f"{auc - off['roc_auc']:+.3f} vs offline",
+        None if auc is None or off.get("roc_auc") is None else f"{auc - off['roc_auc']:+.3f} vs offline",
+        help="Threshold-free: how well scores rank frauds above legitimate payments.",
         border=True,
     )
+    if not current:
+        st.warning(
+            f"{metrics.LEGACY_MODEL} was trained on the very transactions the API replays, "
+            "so these live figures are inflated. Kept for comparison only."
+        )
     frauds = conf.tp + conf.fn
     if frauds < 10:
         st.warning(f"Only {frauds} labelled frauds in this window: these rates are noisy. Pick a wider window.")
@@ -207,10 +239,13 @@ def model_performance() -> None:
     with st.container(border=True):
         _section("How scores separate fraud from legit")
         st.altair_chart(charts.score_distribution(df, threshold), theme=None, width="stretch")
-        st.caption(
-            f"Offline reference (notebook test set): precision {off['precision']:.0%}, "
-            f"recall {off['recall']:.0%}, ROC AUC {off['roc_auc']}."
-        )
+        if off.get("precision") is not None:
+            st.caption(
+                f"Offline reference for {metrics.CURRENT_MODEL} (fraudTest.csv, never seen in training, "
+                f"threshold {metrics.OFFLINE_THRESHOLD:.2f}): precision {off['precision']:.0%}, "
+                f"recall {off['recall']:.0%}, F1 {off['f1']:.2f}, ROC AUC {off['roc_auc']:.3f}, "
+                f"PR AUC {off['pr_auc']:.2f}."
+            )
 
 
 def pipeline_runs() -> None:

@@ -1,0 +1,249 @@
+{
+  "model_version": "model-v2.0.0",
+  "trained_at": "2026-11-25T19:13:33+00:00",
+  "sklearn_version": "1.7.2",
+  "estimator": "HistGradientBoostingClassifier",
+  "n_iter": 292,
+  "input_columns": [
+    "trans_date_trans_time",
+    "amt",
+    "category",
+    "gender",
+    "dob",
+    "city_pop",
+    "lat",
+    "long",
+    "merch_lat",
+    "merch_long"
+  ],
+  "features": [
+    "category",
+    "gender",
+    "log_amt",
+    "hour",
+    "day_of_week",
+    "age",
+    "log_city_pop",
+    "distance_km"
+  ],
+  "excluded_columns": [
+    "cc_num",
+    "first",
+    "last",
+    "merchant",
+    "street",
+    "trans_num",
+    "unix_time",
+    "zip"
+  ],
+  "threshold": 0.3615,
+  "threshold_rule": "maximises F1 on fraudTrain transactions from 2020-03-01 on (temporal validation)",
+  "thresholds": {
+    "conservative": 0.5955,
+    "balanced": 0.3615,
+    "sensitive": 0.0652,
+    "very_sensitive": 0.021
+  },
+  "model_sha256": "873d0a71039e0bafb223e06deaa556b39abed5b1298274ceef8cbd0fd09c9ee9",
+  "data": {
+    "train": {
+      "file": "fraudTrain.csv",
+      "sha256": "fd7139200dbfcbed0b6742bbe05a4f1abce532c4fef20918228a651647a3e75d",
+      "rows": 1296675,
+      "frauds": 7506,
+      "period": [
+        "2019-01-01 00:00:18",
+        "2020-06-21 12:13:37"
+      ]
+    },
+    "test": {
+      "file": "fraudTest.csv",
+      "sha256": "12d553ab19440c752d2531ee1af44bb64f12cc3d3839f1649f19e81c230545f0",
+      "rows": 555719,
+      "frauds": 2145,
+      "period": [
+        "2020-06-21 12:14:25",
+        "2020-12-31 23:59:34"
+      ]
+    },
+    "replayed_holdout_rows_in_train": 0
+  },
+  "metrics": {
+    "validation": {
+      "hist_gradient_boosting": {
+        "rows": 271832,
+        "frauds": 1607,
+        "threshold": 0.3615,
+        "precision": 0.9212,
+        "recall": 0.8146,
+        "f1": 0.8646,
+        "roc_auc": 0.9968,
+        "pr_auc": 0.9155,
+        "alerts": 1421,
+        "confusion": {
+          "tp": 1309,
+          "fp": 112,
+          "fn": 298,
+          "tn": 270113
+        }
+      },
+      "logistic_regression": {
+        "rows": 271832,
+        "frauds": 1607,
+        "threshold": 0.8674,
+        "precision": 0.2407,
+        "recall": 0.3995,
+        "f1": 0.3004,
+        "roc_auc": 0.8572,
+        "pr_auc": 0.1593,
+        "alerts": 2667,
+        "confusion": {
+          "tp": 642,
+          "fp": 2025,
+          "fn": 965,
+          "tn": 268200
+        }
+      }
+    },
+    "test": {
+      "rows": 555719,
+      "frauds": 2145,
+      "threshold": 0.3615,
+      "precision": 0.8534,
+      "recall": 0.7953,
+      "f1": 0.8234,
+      "roc_auc": 0.9968,
+      "pr_auc": 0.8677,
+      "alerts": 1999,
+      "confusion": {
+        "tp": 1706,
+        "fp": 293,
+        "fn": 439,
+        "tn": 553281
+      }
+    },
+    "test_at_0_5": {
+      "rows": 555719,
+      "frauds": 2145,
+      "threshold": 0.5,
+      "precision": 0.8871,
+      "recall": 0.7762,
+      "f1": 0.8279,
+      "roc_auc": 0.9968,
+      "pr_auc": 0.8677,
+      "alerts": 1877,
+      "confusion": {
+        "tp": 1665,
+        "fp": 212,
+        "fn": 480,
+        "tn": 553362
+      }
+    },
+    "test_by_threshold": {
+      "conservative": {
+        "rows": 555719,
+        "frauds": 2145,
+        "threshold": 0.5955,
+        "precision": 0.9059,
+        "recall": 0.7497,
+        "f1": 0.8204,
+        "roc_auc": 0.9968,
+        "pr_auc": 0.8677,
+        "alerts": 1775,
+        "confusion": {
+          "tp": 1608,
+          "fp": 167,
+          "fn": 537,
+          "tn": 553407
+        }
+      },
+      "balanced": {
+        "rows": 555719,
+        "frauds": 2145,
+        "threshold": 0.3615,
+        "precision": 0.8534,
+        "recall": 0.7953,
+        "f1": 0.8234,
+        "roc_auc": 0.9968,
+        "pr_auc": 0.8677,
+        "alerts": 1999,
+        "confusion": {
+          "tp": 1706,
+          "fp": 293,
+          "fn": 439,
+          "tn": 553281
+        }
+      },
+      "sensitive": {
+        "rows": 555719,
+        "frauds": 2145,
+        "threshold": 0.0652,
+        "precision": 0.5449,
+        "recall": 0.896,
+        "f1": 0.6777,
+        "roc_auc": 0.9968,
+        "pr_auc": 0.8677,
+        "alerts": 3527,
+        "confusion": {
+          "tp": 1922,
+          "fp": 1605,
+          "fn": 223,
+          "tn": 551969
+        }
+      },
+      "very_sensitive": {
+        "rows": 555719,
+        "frauds": 2145,
+        "threshold": 0.021,
+        "precision": 0.3587,
+        "recall": 0.9375,
+        "f1": 0.5189,
+        "roc_auc": 0.9968,
+        "pr_auc": 0.8677,
+        "alerts": 5606,
+        "confusion": {
+          "tp": 2011,
+          "fp": 3595,
+          "fn": 134,
+          "tn": 549979
+        }
+      }
+    },
+    "test_logistic_baseline": {
+      "rows": 555719,
+      "frauds": 2145,
+      "threshold": 0.8674,
+      "precision": 0.1676,
+      "recall": 0.3869,
+      "f1": 0.2339,
+      "roc_auc": 0.8513,
+      "pr_auc": 0.1257,
+      "alerts": 4952,
+      "confusion": {
+        "tp": 830,
+        "fp": 4122,
+        "fn": 1315,
+        "tn": 549452
+      }
+    },
+    "replayed_holdout": {
+      "rows": 50000,
+      "frauds": 195,
+      "threshold": 0.3615,
+      "precision": 0.8542,
+      "recall": 0.841,
+      "f1": 0.8475,
+      "roc_auc": 0.999,
+      "pr_auc": 0.9112,
+      "alerts": 192,
+      "confusion": {
+        "tp": 164,
+        "fp": 28,
+        "fn": 31,
+        "tn": 49777
+      }
+    }
+  },
+  "model_size_mb": 0.49,
+  "training_seconds": 38
+}

@@ -136,3 +136,7 @@ logs/
 # ─── Docs build ──────────────────────────────────────────────────────────────
 docs/_build/
 /site
+
+# ─── Training data and outputs (see training/train.py) ───────────────────────
+/data/
+training/artifacts/

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Sequence
 
 import requests
@@ -33,34 +33,11 @@ MAX_BATCH = 100
 # Transactions per call to the model API's /predict/batch.
 PREDICT_CHUNK = 20
 
-DEFAULTS: Dict[str, Any] = {
-    "amt": 100.0,
-    "cc_num": 4000000000000002,
-    "zip": 12345,
-    "city_pop": 50000,
-    "lat": 40.7128,
-    "long": -74.0060,
-    "merch_lat": 40.7128,
-    "merch_long": -74.0060,
-    "first": "John",
-    "last": "Doe",
-    "gender": "M",
-    "street": "123 Main St",
-    "city": "Anytown",
-    "state": "NY",
-    "job": "Engineer",
-    "dob": "1990-01-01",
-    "merchant": "Generic Store",
-    "category": "misc_pos",
-    "trans_date_trans_time": "2020-06-15 12:00:00",
-    "unix_time": 1_592_222_400,
-}
-
+# Raw fields the model reads (model-api/fraud_features.py INPUT_COLUMNS), used when
+# the model API /health is unreachable. Identifiers are deliberately absent.
 FALLBACK_SCHEMA: List[str] = [
-    "cc_num", "amt", "zip", "lat", "long", "city_pop", "unix_time",
-    "merch_lat", "merch_long", "trans_date_trans_time", "merchant",
-    "category", "first", "last", "gender", "street", "city", "state",
-    "job", "dob", "trans_num",
+    "trans_date_trans_time", "amt", "category", "gender", "dob",
+    "city_pop", "lat", "long", "merch_lat", "merch_long",
 ]
 
 # Idempotent DDL: creates the table on a fresh database and migrates older ones.
@@ -85,6 +62,11 @@ SCHEMA_SQL: List[str] = [
       ADD COLUMN IF NOT EXISTS event_time TIMESTAMPTZ;
     """,
     """
+    ALTER TABLE fraud_transactions
+      ADD COLUMN IF NOT EXISTS model_version TEXT,
+      ADD COLUMN IF NOT EXISTS decision_threshold DOUBLE PRECISION;
+    """,
+    """
     CREATE UNIQUE INDEX IF NOT EXISTS fraud_transactions_transaction_id_uidx
     ON fraud_transactions (transaction_id);
     """,
@@ -93,8 +75,8 @@ SCHEMA_SQL: List[str] = [
 UPSERT_SQL = """
     INSERT INTO fraud_transactions (
         transaction_id, amount, merchant, fraud_probability, prediction,
-        is_fraud, event_time
-    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+        is_fraud, event_time, model_version, decision_threshold
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (transaction_id) DO UPDATE SET
         amount = EXCLUDED.amount,
         merchant = EXCLUDED.merchant,
@@ -102,10 +84,11 @@ UPSERT_SQL = """
         prediction = EXCLUDED.prediction,
         is_fraud = EXCLUDED.is_fraud,
         event_time = EXCLUDED.event_time,
+        model_version = EXCLUDED.model_version,
+        decision_threshold = EXCLUDED.decision_threshold,
         updated_at = NOW();
 """
 
-FRAUD_ALERT_PROBABILITY = 0.001
 
 
 # ── Pure helpers ──────────────────────────────────────────────────────────────
@@ -144,62 +127,59 @@ def parse_label_response(body: Dict[str, Any], trans_num: str) -> int | None:
 
 def expected_columns_from_health(health: Dict[str, Any]) -> List[str]:
     """Model input columns as advertised by the model API `/health` endpoint."""
-    cols = list(health.get("expected_numeric", [])) + list(health.get("expected_categorical", []))
+    cols = list(health.get("input_columns") or [])
     return cols or list(FALLBACK_SCHEMA)
 
 
-def fix_timestamps(
-    transaction: Dict[str, Any], expected_columns: List[str]
-) -> Dict[str, Any]:
-    """Normalize timestamps into the model's 2020 training range."""
+def _utc_text(epoch_seconds: float) -> str:
+    return datetime.fromtimestamp(epoch_seconds, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def fix_timestamps(transaction: Dict[str, Any]) -> Dict[str, Any]:
+    """Make sure `trans_date_trans_time` is set, the only time field the model reads.
+
+    The source's own value wins. Otherwise it is derived from `current_time`
+    (epoch ms, Jedha-style payloads) or from `unix_time` (epoch s), in UTC.
+    """
     tx = dict(transaction)
-
-    if "current_time" in tx and "unix_time" in expected_columns:
-        raw_ms = tx["current_time"]
-        if raw_ms > 1_640_995_200_000:  # > 2022-01-01 in ms → rescale into 2020
-            training_start = 1_577_836_800  # 2020-01-01 (s)
-            year_seconds = 31_536_000
-            tx["unix_time"] = training_start + (raw_ms // 1000) % year_seconds
-        else:
-            tx["unix_time"] = raw_ms // 1000
-
-    if "unix_time" in tx and "trans_date_trans_time" in expected_columns:
-        try:
-            dt = datetime.fromtimestamp(tx["unix_time"])
-            tx["trans_date_trans_time"] = dt.strftime("%Y-%m-%d %H:%M:%S")
-        except Exception:
-            tx["trans_date_trans_time"] = DEFAULTS["trans_date_trans_time"]
-
+    if tx.get("trans_date_trans_time"):
+        return tx
+    try:
+        if tx.get("current_time") is not None:
+            tx["trans_date_trans_time"] = _utc_text(tx["current_time"] / 1000)
+        elif tx.get("unix_time") is not None:
+            tx["trans_date_trans_time"] = _utc_text(tx["unix_time"])
+    except (TypeError, ValueError, OverflowError, OSError):
+        pass
     return tx
 
 
 def build_payload(
     transaction: Dict[str, Any], expected_columns: List[str]
 ) -> Dict[str, Any]:
-    """Align transaction fields with model schema, filling defaults for missing fields."""
-    payload: Dict[str, Any] = {}
-    for col in expected_columns:
-        if col in transaction and transaction[col] is not None:
-            payload[col] = transaction[col]
-        elif col in DEFAULTS:
-            payload[col] = DEFAULTS[col]
-        else:
-            payload[col] = f"default_{int(time.time())}" if col == "trans_num" else 0
-    return payload
+    """Keep only the model's input columns; a missing field is sent as null.
+
+    No made-up defaults: the model handles missing values itself, and the
+    API reports them in `details.missing_fields`.
+    """
+    return {col: transaction.get(col) for col in expected_columns}
 
 
 def prepare_payload(
     transaction: Dict[str, Any], expected_columns: List[str]
 ) -> Dict[str, Any]:
     """Timestamp fix + schema alignment, as sent to the model."""
-    return build_payload(fix_timestamps(transaction, expected_columns), expected_columns)
+    return build_payload(fix_timestamps(transaction), expected_columns)
 
 
 def parse_prediction(pred: Dict[str, Any]) -> Dict[str, Any]:
     """Keep only what the pipeline stores from a model API prediction."""
+    threshold = pred.get("threshold_used")
     return {
         "probability": float(pred.get("probability", 0.0)),
         "prediction": int(pred.get("prediction", 0)),
+        "model_version": pred.get("model_version"),
+        "threshold": None if threshold is None else float(threshold),
     }
 
 
@@ -215,6 +195,8 @@ def build_row(
         int(pred.get("prediction", 0)),
         is_fraud,
         transaction.get("event_time"),
+        pred.get("model_version"),
+        pred.get("threshold"),
     )
 
 
@@ -336,6 +318,7 @@ def store_rows(conn, rows: Sequence[tuple]) -> int:
 
 
 def log_fraud_alerts(rows: Sequence[tuple]) -> None:
+    """Log the transactions the model flagged (prediction = 1)."""
     for row in rows:
-        if row[3] > FRAUD_ALERT_PROBABILITY:
+        if row[4] == 1:
             log.warning("FRAUD ALERT: prob=%.6f, amount=$%s", row[3], row[1])

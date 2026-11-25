@@ -22,7 +22,7 @@ from airflow.operators.empty import EmptyOperator
 # The scoring logic lives in fraud_pipeline.py (same folder), shared with the
 # scheduled GitHub Actions job (scripts/score_batch.py).
 import fraud_pipeline as fp
-from fraud_pipeline import DEFAULTS, FALLBACK_SCHEMA  # noqa: F401  (re-exported)
+from fraud_pipeline import FALLBACK_SCHEMA  # noqa: F401  (re-exported)
 
 # Kept under their historical names for readability and tests.
 _parse_transactions_response = fp.parse_transactions_response
@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS fraud_transactions (
   prediction     INTEGER,
   is_fraud       INTEGER,          -- ground truth, NULL if unknown
   event_time     TIMESTAMPTZ,      -- emission time from the source API
+  model_version  TEXT,             -- model release that scored the row
+  decision_threshold DOUBLE PRECISION, -- threshold behind `prediction`
   inserted_at    TIMESTAMPTZ DEFAULT NOW()
 );
 ```
