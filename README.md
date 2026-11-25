@@ -7,7 +7,7 @@ End-to-end fraud detection pipeline with **Airflow**, **Hugging Face Spaces**, *
 
 - **Airflow DAGs**:
   - Fetch real-time transactions from our own **Transactions API** (`transactions-api/`, replays a 50k holdout of the Kaggle Sparkov dataset, with ground-truth labels served separately)
-  - Preprocess + send to Hugging Face model
+  - Preprocess + send to the fraud model API (`model-api/`, deployed on Render)
   - Store results in NeonDB
 - **Streamlit Dashboard**:
   - KPIs, fraud probability trends, interactive filters
@@ -93,9 +93,9 @@ apache-airflow
 ## 📊 Architecture
 
 ```
-Transactions API (HF Space, transactions-api/) 
+Transactions API (Render, transactions-api/) 
    → Airflow DAG 
-      → Hugging Face Space (fraud model API) 
+      → Fraud model API (Render, model-api/) 
          → NeonDB (Postgres) 
             → Streamlit dashboard (HF Space)
 ```
