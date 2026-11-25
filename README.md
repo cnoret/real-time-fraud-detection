@@ -1,6 +1,6 @@
 # Real-Time Fraud Detection: an orchestrated scoring pipeline for card payments
 
-[![Live App](https://img.shields.io/badge/Live%20App-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://cnoret-fraud-monitor-streamlit.hf.space/)
+[![Live App](https://img.shields.io/badge/Live%20App-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://cnoret-fraud-monitor.streamlit.app/)
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cnoret/real-time-fraud-detection/blob/main/EDA_training.ipynb)
 ![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?logo=python&logoColor=white)
 ![Airflow](https://img.shields.io/badge/Apache%20Airflow-3.0-017CEE?logo=apacheairflow&logoColor=white)
@@ -11,7 +11,7 @@
 
 **Data:** 555,719 simulated card transactions (Sparkov, `fraudTest.csv`) · 0.39% fraud (2,145 cases) · June to December 2020 · 50,000-transaction holdout replayed as a live stream
 
-**Live app:** [cnoret-fraud-monitor-streamlit.hf.space](https://cnoret-fraud-monitor-streamlit.hf.space/)
+**Live app:** [cnoret-fraud-monitor.streamlit.app](https://cnoret-fraud-monitor.streamlit.app/)
 
 ---
 
@@ -39,7 +39,7 @@ flowchart LR
     B -->|features only| C[Model API<br/>FastAPI on Render]
     C -->|probability + decision| B
     B -->|upsert| D[(Neon PostgreSQL)]
-    D --> E[Streamlit dashboard<br/>Hugging Face Space]
+    D --> E[Streamlit dashboard<br/>Streamlit Community Cloud]
 ```
 
 All hosting runs on free tiers.
@@ -92,7 +92,7 @@ Then open `http://localhost:8080` and set the Airflow Variable `NEON_DB_URI` (`T
 **Dashboard** (local):
 
 ```bash
-pip install -r dashboard/requirements.txt
+pip install -r dashboard/src/requirements.txt
 export NEON_DB_URI="postgresql://user:password@host/db?sslmode=require"
 streamlit run dashboard/src/streamlit_app.py
 ```
