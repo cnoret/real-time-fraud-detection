@@ -3,12 +3,13 @@
 [![Live App](https://img.shields.io/badge/Live%20App-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://cnoret-fraud-monitor.streamlit.app/)
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cnoret/real-time-fraud-detection/blob/main/EDA_training.ipynb)
 [![Tests](https://github.com/cnoret/real-time-fraud-detection/actions/workflows/tests.yml/badge.svg)](https://github.com/cnoret/real-time-fraud-detection/actions/workflows/tests.yml)
-![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Airflow](https://img.shields.io/badge/Apache%20Airflow-3.0-017CEE?logo=apacheairflow&logoColor=white)
 ![scikit-learn](https://img.shields.io/badge/scikit--learn-1.7-F7931E?logo=scikitlearn&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Neon-4169E1?logo=postgresql&logoColor=white)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**An orchestrated pipeline (Airflow, plus an hourly GitHub Actions run that keeps the demo live) scores a replayed stream of card transactions with a fraud model that catches 80% of frauds with 85% of alerts being real frauds on data it never saw (F1 0.82), stores each prediction next to its ground-truth label in PostgreSQL, and feeds a live monitoring dashboard.**
+**An orchestrated, tested pipeline scores a live stream of card payments, stores every decision next to its ground truth in PostgreSQL, and monitors it: on six months of transactions it never saw, the model catches 80% of frauds and 85% of its alerts are real (F1 0.82).**
 
 **Data:** 1.85 M simulated card transactions (Sparkov) · trained on 1,296,675 (Jan 2019 to Jun 2020, 7,506 frauds) · evaluated on the 555,719 that follow (Jun to Dec 2020, 2,145 frauds, 0.39%) · 50,000 of those replayed as the live stream
 
@@ -54,8 +55,9 @@ On the 50,000 replayed transactions alone (195 frauds), the same model reaches 8
 flowchart LR
     A[Transactions API<br/>FastAPI on Render] -->|transactions| B[Airflow DAG, local<br/>or GitHub Actions, hourly]
     A -->|ground-truth label,<br/>served separately| B
-    B -->|features only| C[Model API<br/>FastAPI on Render]
+    B -->|model inputs only,<br/>no identifiers| C[Model API<br/>FastAPI on Render]
     C -->|probability + decision| B
+    T[Training script<br/>fraudTrain.csv] -->|model + model card,<br/>GitHub Release| C
     B -->|upsert| D[(Neon PostgreSQL)]
     D --> E[Streamlit dashboard<br/>Streamlit Community Cloud]
 ```
@@ -65,7 +67,7 @@ All hosting runs on free tiers.
 | Component | Folder | Role |
 |---|---|---|
 | Transactions API | [`transactions-api/`](transactions-api/) | Replays a fixed 50,000-transaction holdout (195 frauds) as if payments were arriving now. The `is_fraud` label is served by a separate endpoint so it can never leak into the model's features. Live at [fraud-transactions-api.onrender.com](https://fraud-transactions-api.onrender.com/docs). |
-| Airflow DAG | [`airflow/dags/fraud_detection_dag_v2.py`](airflow/dags/fraud_detection_dag_v2.py) | Runs every minute: `ingestion` → `labeling` → `inference` → `persistence`. Rejects a payload that contains the label, aligns it to the model schema, and upserts the result on `transaction_id`. |
+| Airflow DAG | [`airflow/dags/fraud_detection_dag_v2.py`](airflow/dags/fraud_detection_dag_v2.py) | Runs every minute: `ingestion` → `labeling` → `inference` → `persistence`. Rejects a payload that contains the label, sends the model only its ten input fields, and upserts the result on `transaction_id`. Meant for local runs: on the free Render services, use the hourly scheduled run instead. |
 | Scheduled run | [`.github/workflows/pipeline.yml`](.github/workflows/pipeline.yml), [`scripts/score_batch.py`](scripts/score_batch.py) | Same steps as the DAG, reused from [`fraud_pipeline.py`](airflow/dags/fraud_pipeline.py), on a GitHub Actions cron: every hour it wakes both APIs, scores a batch of 30 transactions (`/predict/batch`) and upserts them. Hourly keeps the two free Render services well under their 750 free instance-hours a month. |
 | Training | [`training/train.py`](training/train.py) | Reproducible training and evaluation (protocol above). Writes the model and its [model card](model-api/model_card.json): data fingerprints, thresholds, metrics. |
 | Model API | [`model-api/`](model-api/) | Serves the scikit-learn pipeline (`/predict`, `/predict/batch`, `/thresholds`, `/model`). The model file (0.5 MB) is versioned as a [GitHub Release](https://github.com/cnoret/real-time-fraud-detection/releases/tag/model-v2.0.0) and downloaded at build time; the build fails if its hash does not match the model card. Live at [fraud-model-api.onrender.com](https://fraud-model-api.onrender.com/docs). |
@@ -85,14 +87,14 @@ Both Render services sleep after 15 minutes without traffic and take about a min
 │   ├── dags/fraud_pipeline.py           # Scoring logic shared by the DAG and the scheduled run
 │   └── docker-compose.yaml              # Local Airflow stack
 ├── scripts/score_batch.py               # Batch runner used by the scheduled workflow
-├── transactions-api/                    # Transaction stream (FastAPI, Docker)
+├── transactions-api/                    # Transaction stream and ground-truth labels (FastAPI, Docker)
 ├── training/train.py                    # Reproducible training and evaluation
 ├── model-api/                           # Model serving (FastAPI, Docker), features, model card
 ├── dashboard/src/                       # Streamlit console: pages, metrics, SQL quality checks
 ├── .streamlit/config.toml               # Dashboard theme
-├── tests/                               # pytest suite (APIs, DAG logic, model download, dashboard)
+├── tests/                               # pytest suite (APIs, features, DAG logic, model download, dashboard)
 ├── EDA_training.ipynb                   # Exploratory analysis (its v1 model is retired)
-├── client_realtime.py                   # Minimal client that calls both APIs
+├── client_realtime.py                   # Minimal client: fetch one transaction, score it, print the verdict
 ├── render.yaml                          # Render Blueprint for both APIs
 ├── requirements-dev.txt                 # Pinned test and lint dependencies
 ├── ruff.toml                            # Lint rules

@@ -1,47 +1,23 @@
----
-title: Fraud Transactions API
-emoji: 💳
-colorFrom: gray
-colorTo: red
-sdk: gradio
-sdk_version: 5.45.0
-app_file: app.py
-pinned: false
-license: mit
-short_description: Flux de paiements par carte rejoué en temps réel
----
-
 # Fraud Transactions API
 
-Source de transactions du projet [real-time-fraud-detection](https://github.com/cnoret/real-time-fraud-detection).
-Elle remplace l'API fournie pendant la formation : le pipeline ne dépend plus d'un service tiers.
+Data source of [real-time-fraud-detection](https://github.com/cnoret/real-time-fraud-detection). It replaces the API provided during the training course, so the pipeline no longer depends on a third-party service.
 
-L'API rejoue un échantillon fixe de **50 000 transactions** (dont **195 fraudes**, 0,39 %)
-tiré du jeu simulé *Sparkov* (`fraudTest.csv`), comme si les paiements arrivaient maintenant.
+The API replays a fixed sample of **50,000 transactions** (**195 frauds**, 0.39%) drawn from the simulated *Sparkov* dataset (`fraudTest.csv`), as if the payments were arriving now. The model is trained on `fraudTrain.csv` only, which ends before `fraudTest.csv` starts, so every replayed transaction is unseen data; [`training/train.py`](../training/train.py) checks that none of these `trans_num` is in its training data.
 
-| Endpoint | Rôle |
+| Endpoint | Purpose |
 |---|---|
-| `GET /health` | état du service, volume et taux de fraude du jeu |
-| `GET /v1/transactions?n=1&seed=` | `n` transactions (1 à 100) **sans** le label, horodatées `event_time` |
-| `GET /v1/labels?trans_num=…` | vérité terrain `is_fraud` (simule le retour des rétrofacturations) |
-| `GET /current-transactions` | compatibilité avec l'ancien format (pandas `orient=split`) |
+| `GET /health` | service status, volume and fraud rate of the replay set |
+| `GET /v1/transactions?n=1&seed=` | `n` transactions (1 to 100) **without** their label, stamped with `event_time` |
+| `GET /v1/labels?trans_num=…` | ground truth `is_fraud` for given ids (simulates chargeback feedback) |
+| `GET /current-transactions` | legacy format of the former course API (pandas `orient=split`) |
 
-Le label est servi à part, volontairement : il ne peut pas se glisser dans les variables envoyées
-au modèle, et il permet de mesurer précision et rappel en production.
+The label is served apart on purpose: it can never slip into the fields sent to the model, and it lets the pipeline measure precision and recall in production.
 
-**Holdout** : ces 50 000 `trans_num` doivent être exclus de tout réentraînement du modèle,
-sinon la mesure de performance serait biaisée.
+## Hosting
 
-## Hébergement
+Deployed on **Render** (free tier) from the `Dockerfile`, as described in `render.yaml` at the repository root. The service sleeps after 15 minutes without traffic and wakes up on the first call (about a minute).
 
-L'API est déployée sur **Render** (offre gratuite) à partir du `Dockerfile`, décrit dans
-`render.yaml` à la racine du dépôt. Le service se met en veille après 15 minutes sans trafic
-et se réveille au premier appel (environ une minute).
-
-Les Spaces Hugging Face Gradio et Docker demandent désormais un abonnement PRO, d'où ce choix.
-L'en-tête YAML ci-dessus reste valable pour un éventuel Space.
-
-## Lancer en local
+## Run locally
 
 ```bash
 pip install -r requirements.txt
@@ -49,6 +25,6 @@ uvicorn app:app --port 7860
 # http://localhost:7860/docs
 ```
 
-Reconstruire le jeu : `python scripts/build_holdout.py` (graine 42, reproductible).
+Rebuild the replay set: `python scripts/build_holdout.py path/to/fraudTest.csv` (seed 42, reproducible).
 
-Limite : 60 appels par minute et par client (hébergement gratuit).
+Rate limit: 60 calls per minute per client (free hosting).
