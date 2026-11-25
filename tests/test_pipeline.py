@@ -115,6 +115,26 @@ class TestApiCalls:
         assert len(preds) == 45
         assert [len(c.kwargs["json"]) for c in post.call_args_list] == [20, 20, 5]
 
+    def test_predict_batch_retries_gateway_errors(self):
+        ok = _response({"predictions": [{"probability": 0.2, "prediction": 1}]})
+        with patch.object(fp.requests, "post",
+                          side_effect=[_response({}, status=502), requests.Timeout("slow"), ok]) as post, \
+             patch.object(fp.time, "sleep"):
+            assert fp.predict_batch("http://model", [{"amt": 1}]) == [{"probability": 0.2, "prediction": 1}]
+        assert post.call_count == 3
+
+    def test_predict_batch_gives_up_after_retries(self):
+        with patch.object(fp.requests, "post", return_value=_response({}, status=502)), \
+             patch.object(fp.time, "sleep"):
+            with pytest.raises(requests.HTTPError):
+                fp.predict_batch("http://model", [{"amt": 1}])
+
+    def test_predict_batch_does_not_retry_client_errors(self):
+        with patch.object(fp.requests, "post", return_value=_response({}, status=422)) as post:
+            with pytest.raises(requests.HTTPError):
+                fp.predict_batch("http://model", [{"amt": 1}])
+        assert post.call_count == 1
+
     def test_predict_batch_length_mismatch(self):
         with patch.object(fp.requests, "post", return_value=_response({"predictions": []})):
             with pytest.raises(ValueError, match="0 predictions for 1"):
