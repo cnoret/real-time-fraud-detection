@@ -3,7 +3,7 @@ Fraud Detection MVP (Airflow 3)
 Graph-friendly DAG with clear task bubbles:
 - Ingestion: fetch a transaction from our own Transactions API
 - Labeling: fetch its ground truth (is_fraud), served separately
-- Inference: prepare payload + call HF Space
+- Inference: prepare payload + call the model API
 - Persistence: store result into NeonDB
 """
 
@@ -24,8 +24,11 @@ from airflow.operators.empty import EmptyOperator
 # Self-hosted transactions source (transactions-api/ in this repo, deployed on Render).
 # Can be overridden with the Airflow Variable TRANSACTIONS_API.
 TRANSACTIONS_API_DEFAULT = "https://fraud-transactions-api.onrender.com"
-HF_SPACE_API = "https://cnoret-fraud-detection-api.hf.space/predict"
-HEALTH_URL = HF_SPACE_API.replace("/predict", "/health")
+# Fraud detection model (model-api/ in this repo, deployed on Render).
+# Can be overridden with the Airflow Variable MODEL_API.
+MODEL_API_DEFAULT = "https://fraud-model-api.onrender.com"
+# Free Render services sleep after 15 min idle and take about a minute to wake up.
+REQUEST_TIMEOUT = 90
 
 DEFAULTS: Dict[str, Any] = {
     "amt": 100.0,
@@ -63,11 +66,11 @@ DOC_MD = """
 **Flow**
 1. **Ingestion** – fetch a live transaction from our Transactions API.
 2. **Labeling** – fetch its ground truth (`is_fraud`), never sent to the model.
-3. **Inference** – prepare payload (schema align + timestamp fix) then call **HF Space**.
+3. **Inference** – prepare payload (schema align + timestamp fix) then call the **model API**.
 4. **Persistence** – store results into **NeonDB**.
 
 **Key Vars**
-- `TRANSACTIONS_API`, `HF_SPACE_API`, `HEALTH_URL`, `NEON_DB_URI` (Airflow Variables)
+- `TRANSACTIONS_API`, `MODEL_API`, `NEON_DB_URI` (Airflow Variables)
 
 **Table**
 ```sql
@@ -179,7 +182,7 @@ def automatic_fraud_detection():
             """Fetch 1 transaction (without its label) from our Transactions API."""
             base = Variable.get("TRANSACTIONS_API", default_var=TRANSACTIONS_API_DEFAULT)
             logging.info("Fetching transaction from %s…", base)
-            r = requests.get(f"{base.rstrip('/')}/v1/transactions", params={"n": 1}, timeout=30)
+            r = requests.get(f"{base.rstrip('/')}/v1/transactions", params={"n": 1}, timeout=REQUEST_TIMEOUT)
             r.raise_for_status()
             tx = _parse_transactions_response(r.json())
             logging.info("Fetched transaction: $%s at %s", tx.get("amt"), tx.get("merchant"))
@@ -218,8 +221,9 @@ def automatic_fraud_detection():
         @task(task_id="prepare_payload")
         def prepare_payload(transaction: Dict[str, Any]) -> Dict[str, Any]:
             """Align fields with model schema; fix timestamps; fill defaults."""
+            base = Variable.get("MODEL_API", default_var=MODEL_API_DEFAULT)
             try:
-                resp = requests.get(HEALTH_URL, timeout=10)
+                resp = requests.get(f"{base.rstrip('/')}/health", timeout=REQUEST_TIMEOUT)
                 resp.raise_for_status()
                 health = resp.json()
                 expected_columns = (
@@ -234,9 +238,12 @@ def automatic_fraud_detection():
 
         @task(task_id="predict_fraud")
         def predict_fraud(payload: Dict[str, Any]) -> Dict[str, Any]:
-            """Call HF Space model endpoint and return prediction + prob."""
-            logging.info("Calling model endpoint…")
-            resp = requests.post(HF_SPACE_API, json={"data": payload}, timeout=30)
+            """Call the model API and return prediction + prob."""
+            base = Variable.get("MODEL_API", default_var=MODEL_API_DEFAULT)
+            logging.info("Calling model endpoint %s…", base)
+            resp = requests.post(
+                f"{base.rstrip('/')}/predict", json={"data": payload}, timeout=REQUEST_TIMEOUT
+            )
             resp.raise_for_status()
             pred = resp.json()
             result = {

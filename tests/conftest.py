@@ -5,7 +5,9 @@ The Airflow mock must be installed into sys.modules before any DAG file
 is imported, so it lives at the top of conftest.py (executed first by pytest).
 """
 
+import importlib.util
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -50,21 +52,31 @@ def _make_mock_model(fraud_proba: float = 0.2):
     return m
 
 
+MODEL_API_PATH = Path(__file__).resolve().parents[1] / "model-api" / "app.py"
+
+
+def _import_model_api():
+    """Import model-api/app.py under the module name `fraud_api`."""
+    spec = importlib.util.spec_from_file_location("fraud_api", MODEL_API_PATH)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["fraud_api"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 # ── API fixtures ──────────────────────────────────────────────────────────────
 @pytest.fixture(scope="session")
 def api_client():
     """TestClient backed by a low-risk mock model (fraud_proba=0.0005)."""
     with patch("joblib.load", return_value=_make_mock_model(fraud_proba=0.0005)):
-        sys.modules.pop("fraud_api", None)
-        import fraud_api as fa
+        fa = _import_model_api()
         from fastapi.testclient import TestClient
         yield TestClient(fa.app)
 
 
 @pytest.fixture(scope="session")
 def fraud_api_module(api_client):  # noqa: ARG001 — ensures api_client initialised first
-    import fraud_api
-    return fraud_api
+    return sys.modules["fraud_api"]
 
 
 # ── Data fixtures ─────────────────────────────────────────────────────────────
